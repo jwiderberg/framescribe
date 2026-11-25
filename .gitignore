@@ -14,3 +14,12 @@ out/
 # Mac app
 app/build/
 app/.build/
+
+# signing material: never commit it
+*.p12
+*.p8
+AuthKey_*.p8
+*.cer
+*.mobileprovision
+*.keychain-db
+.env*

@@ -1,0 +1,421 @@
+name: Release
+
+# Builds Framescribe.app from a tagged commit, signs it with a Developer ID, has Apple notarize it, staples the
+# ticket and publishes the zip as a GitHub release.
+#
+# Release:   git tag v0.1.0 && git push origin v0.1.0
+#            The tag must be "v" + the version in pyproject.toml, or the build stops.
+# Dry run:   gh workflow run release.yml --ref v0.1.0 -f dry_run=true   (or Actions > Release > Run workflow)
+#            Builds, signs, notarizes and staples like a release, then keeps the zip as a workflow artifact for
+#            7 days. Nothing is published and nothing is attested: the publish job does not run. The sign job runs
+#            only on a ref the "release" environment admits (docs/RELEASING.md).
+#
+# Secrets, in the GitHub environment "release" (scripts/release-secrets.sh sets them, docs/RELEASING.md says where
+# each comes from):
+#   DEVELOPER_ID_P12_BASE64     "Developer ID Application" certificate and its private key, PKCS#12, base64
+#   DEVELOPER_ID_P12_PASSWORD   the password of that .p12
+#   NOTARY_KEY_P8_BASE64        App Store Connect API key (.p8), base64
+#   NOTARY_KEY_ID               its Key ID
+#   NOTARY_ISSUER_ID            the Issuer ID of the App Store Connect team
+#
+# Three jobs, so that no dependency code ever runs where the secrets are:
+#   build    no environment, read-only token, no secrets. Everything that downloads or runs third-party code happens
+#            here: uv, the standalone Python, every wheel, byte-compiling, the import checks of the embedded runtime.
+#            It uploads the finished ad-hoc bundle as a workflow artifact (a ditto zip, which keeps file modes).
+#   sign     environment "release" (the only job that has it and the only one that sees secrets), read-only token.
+#            It downloads that bundle and only signs (app/sign_app.sh, the same code a local build uses), checks
+#            (app/preflight_app.sh), notarizes, staples and zips. It installs nothing, restores no cache and never
+#            runs the embedded Python. The scripts it runs come from the checked-out tag.
+#   publish  no secrets, the only job with write permissions (release, OIDC token for Sigstore, attestations). It
+#            downloads the signed zip, checks it, attests it and creates the release. Only for a tag, never for a
+#            dry run.
+#
+# The throwaway keychain is deleted right after signing, with an always() fallback at the end of the sign job.
+# Secrets reach the steps that use them as environment variables only, never inside a run: script.
+#
+# Nothing is cached between runs (no actions/cache, setup-uv with its cache off): every run downloads the standalone
+# Python (uv checks its SHA-256) and the wheels pinned with hashes in uv.lock (uv export --locked,
+# uv pip install --require-hashes), exactly as a local build does. Third-party actions are pinned to commit SHAs
+# (the version in the comment).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: sign, notarize and staple, publish nothing (the zip stays a workflow artifact)"
+        type: boolean
+        default: true
+
+# Read-only by default. The publish job asks for more, for itself only.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # macos-15: Apple Silicon, and the oldest macOS the app supports (LSMinimumSystemVersion 15.0, set by the
+    # opencv-python-headless wheel). build_app.sh imports the embedded runtime on the build machine, so the build
+    # machine must run the bundle, and on the floor OS that check also shows the bundle loads there.
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact: ${{ steps.version.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+
+      - name: Version
+        id: version
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
+          echo "pyproject.toml version = $VERSION"
+          if [[ -z "$VERSION" ]]; then echo "::error::no version in pyproject.toml"; exit 1; fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            if [[ "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match pyproject.toml version v$VERSION; bump the version, commit, then tag that commit"
+              exit 1
+            fi
+          elif [[ "$DRY_RUN" != "true" ]]; then
+            echo "::error::a release needs a tag (v$VERSION); from a branch only a dry run is possible"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "artifact=Framescribe-$VERSION.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Select the newest Xcode
+        run: |
+          set -euo pipefail
+          XCODE="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [[ -n "$XCODE" ]]; then
+            echo "Selecting $XCODE"
+            sudo xcode-select -s "$XCODE"
+          fi
+          xcodebuild -version
+          swift --version
+
+      # uv pinned to one version: it decides which standalone Python is downloaded (and the checksum it expects),
+      # and with uv_build>=0.11,<0.12 in pyproject.toml it builds the framescribe wheel with its own built-in backend.
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: "0.11.10"
+          enable-cache: false
+
+      # The complete build, signed ad hoc. No secret exists in this job.
+      - name: Build
+        run: app/build_app.sh
+
+      - name: Pack the unsigned bundle
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/unsigned"
+          ditto -c -k --keepParent app/build/Framescribe.app "$RUNNER_TEMP/unsigned/Framescribe-unsigned.zip"
+          (cd "$RUNNER_TEMP/unsigned" && shasum -a 256 Framescribe-unsigned.zip > Framescribe-unsigned.zip.sha256 \
+            && cat Framescribe-unsigned.zip.sha256)
+
+      - name: Upload the unsigned bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Framescribe-unsigned
+          path: ${{ runner.temp }}/unsigned
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    needs: build
+    # the secrets live here; the environment's protection rules (required reviewer, tags v* only) gate this job
+    environment: release
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      team: ${{ steps.package.outputs.team }}
+    steps:
+      # the signing, checking and packaging scripts of the tagged commit: app/sign_app.sh, app/preflight_app.sh,
+      # app/package_app.sh and app/Support/*.entitlements. Nothing else from the checkout runs.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+
+      # The throwaway keychain and the bundle live outside the workspace. runner.temp is not available in a job env.
+      - name: Paths
+        run: |
+          {
+            echo "KEYCHAIN=$RUNNER_TEMP/release.keychain-db"
+            echo "APP=$RUNNER_TEMP/app/Framescribe.app"
+            echo "DIST=$RUNNER_TEMP/dist"
+          } >> "$GITHUB_ENV"
+
+      - name: Download the unsigned bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: Framescribe-unsigned
+          path: ${{ runner.temp }}/unsigned
+
+      - name: Unpack the unsigned bundle
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/unsigned"
+          shasum -a 256 -c Framescribe-unsigned.zip.sha256
+          mkdir -p "$RUNNER_TEMP/app"
+          ditto -x -k Framescribe-unsigned.zip "$RUNNER_TEMP/app"
+          BUNDLE_VERSION="$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist")"
+          if [[ "$BUNDLE_VERSION" != "$VERSION" ]]; then
+            echo "::error::the bundle says version $BUNDLE_VERSION, the build job $VERSION"
+            exit 1
+          fi
+
+      - name: Import Developer ID certificate
+        id: identity
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "$DEVELOPER_ID_P12_BASE64" || -z "$DEVELOPER_ID_P12_PASSWORD" ]]; then
+            echo "::error::DEVELOPER_ID_P12_BASE64 / DEVELOPER_ID_P12_PASSWORD are not set in the release environment; run scripts/release-secrets.sh"
+            exit 1
+          fi
+          P12="$RUNNER_TEMP/developer-id.p12"
+          printf '%s' "$DEVELOPER_ID_P12_BASE64" | base64 --decode > "$P12"
+
+          # Apple's "Developer ID Certification Authority (G2)" intermediate: codesign needs the whole chain in a
+          # keychain and the runner image does not necessarily carry it. Pinned by SHA-256 (from
+          # https://www.apple.com/certificateauthority/, valid until 2031-09-17).
+          CA="$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          curl -sSfL -o "$CA" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          echo "f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a  $CA" | shasum -a 256 -c -
+
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 1800 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CA" -k "$KEYCHAIN" -T /usr/bin/codesign >/dev/null
+          security import "$P12" -k "$KEYCHAIN" -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign -f pkcs12 >/dev/null
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          rm -f "$P12"
+          # Prepend the throwaway keychain to the user search list so codesign finds the chain; keep the others.
+          EXISTING=()
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"; line="${line%\"}"; line="${line#\"}"
+            if [[ -n "$line" ]]; then EXISTING+=("$line"); fi
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$KEYCHAIN" ${EXISTING[@]+"${EXISTING[@]}"}
+
+          IDENTITY="$(security find-identity -p codesigning -v "$KEYCHAIN" | sed -nE 's/.*"(Developer ID Application: [^"]*)".*/\1/p' | head -n 1)"
+          if [[ -z "$IDENTITY" ]]; then
+            echo "::error::the imported certificate holds no valid 'Developer ID Application' identity"
+            exit 1
+          fi
+          echo "Signing identity: $IDENTITY"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      # Every Mach-O file inside out with the hardened runtime and a secure timestamp, the embedded Python with
+      # app/Support/runtime.entitlements. Runs nothing from the bundle.
+      - name: Sign
+        env:
+          IDENTITY: ${{ steps.identity.outputs.identity }}
+        run: app/sign_app.sh --identity "$IDENTITY" --keychain "$KEYCHAIN" "$APP"
+
+      - name: Remove the signing keychain
+        run: |
+          set -euo pipefail
+          security delete-keychain "$KEYCHAIN"
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+
+      # The release gate: fails on any Mach-O file without the runtime flag, a signature, a secure timestamp or the
+      # one Team ID, and on everything else notarization is known to reject.
+      - name: Preflight
+        run: app/preflight_app.sh "$APP"
+
+      - name: Inspect signature
+        run: |
+          set -euo pipefail
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dvv "$APP" 2>&1 | grep -E '^(Identifier|TeamIdentifier|Authority|Timestamp|Runtime Version)='
+          echo "entitlements of the app: (none expected)"
+          codesign -d --entitlements - --xml "$APP" | plutil -p - || true
+          echo "entitlements of the embedded Python:"
+          codesign -d --entitlements - --xml "$APP/Contents/Resources/runtime/bin/python3.12" | plutil -p -
+
+      - name: Notarize
+        env:
+          NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "$NOTARY_KEY_P8_BASE64" || -z "$NOTARY_KEY_ID" || -z "$NOTARY_ISSUER_ID" ]]; then
+            echo "::error::NOTARY_* secrets are not set in the release environment; run scripts/release-secrets.sh"
+            exit 1
+          fi
+          KEY="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$KEY"
+          UPLOAD="$RUNNER_TEMP/notarize.zip"
+          ditto -c -k --keepParent "$APP" "$UPLOAD"
+
+          xcrun notarytool submit "$UPLOAD" \
+            --key "$KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
+            --wait --timeout 60m --output-format json > "$RUNNER_TEMP/notary.json" || true
+          cat "$RUNNER_TEMP/notary.json"
+          STATUS="$(plutil -extract status raw -o - "$RUNNER_TEMP/notary.json" 2>/dev/null || true)"
+          ID="$(plutil -extract id raw -o - "$RUNNER_TEMP/notary.json" 2>/dev/null || true)"
+          if [[ "$STATUS" != "Accepted" ]]; then
+            echo "::error::notarization status: ${STATUS:-unknown}"
+            if [[ -n "$ID" ]]; then
+              xcrun notarytool log "$ID" --key "$KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" || true
+            fi
+            rm -f "$KEY" "$UPLOAD"
+            exit 1
+          fi
+          rm -f "$KEY" "$UPLOAD"
+
+      - name: Staple and assess
+        run: |
+          set -euo pipefail
+          # the ticket comes from Apple's CDN, which drops a connection now and then right after "Accepted";
+          # stapler validate looks it up online too
+          retry() {
+            local attempt
+            for attempt in 1 2 3 4 5 6; do
+              if "$@"; then return 0; fi
+              echo "attempt $attempt of '$*' failed; retrying in 30 s"
+              sleep 30
+            done
+            echo "::error::'$*' failed 6 times"
+            return 1
+          }
+          retry xcrun stapler staple "$APP"
+          retry xcrun stapler validate "$APP"
+          codesign --verify --deep --strict "$APP"
+          # Gatekeeper's verdict: "Notarized Developer ID" is the only acceptable source for a download
+          spctl --assess --type execute -vv "$APP" 2>&1 | tee "$RUNNER_TEMP/spctl.txt"
+          grep -q 'source=Notarized Developer ID' "$RUNNER_TEMP/spctl.txt"
+
+      # The stapled app, zipped again: the zip that was notarized does not hold the ticket.
+      - name: Package
+        id: package
+        run: |
+          set -euo pipefail
+          app/package_app.sh --out "$DIST" "$APP"
+          (cd "$DIST" && cat ./*.sha256 && shasum -a 256 -c ./*.sha256)
+          TEAM="$(codesign -dvv "$APP" 2>&1 | sed -nE 's/^TeamIdentifier=(.*)$/\1/p')"
+          if [[ ! "$TEAM" =~ ^[A-Z0-9]{10}$ ]]; then echo "::error::unexpected TeamIdentifier: $TEAM"; exit 1; fi
+          echo "team=$TEAM" >> "$GITHUB_OUTPUT"
+
+      # The zip goes to the publish job (a tag) or stays for inspection (a dry run), as a workflow artifact either way.
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ env.DIST }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove the signing keychain and key files (fallback)
+        if: always()
+        run: |
+          if [[ -n "${KEYCHAIN:-}" && -f "$KEYCHAIN" ]]; then
+            security delete-keychain "$KEYCHAIN" || rm -f "$KEYCHAIN"
+          fi
+          rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/notarize.zip"
+
+  publish:
+    needs: [build, sign]
+    # a tag, and not a dry run: a push of the tag, or a manual run on the tag with dry_run off
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run == false)
+    # needs nothing macOS-specific: it checks, attests and uploads a finished zip
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # create the release and upload its files
+      id-token: write # Sigstore signing of the provenance attestation
+      attestations: write
+    env:
+      DIST: ${{ github.workspace }}/dist
+    steps:
+      - name: Download the signed zip
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: ${{ env.DIST }}
+
+      - name: Check the download against its SHA-256
+        env:
+          ARTIFACT: ${{ needs.build.outputs.artifact }}
+        run: |
+          set -euo pipefail
+          cd "$DIST"
+          ls -l
+          sha256sum -c "$ARTIFACT.sha256"
+
+      # Sigstore-signed statement that this workflow run built the zip from this commit
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: ${{ env.DIST }}/${{ needs.build.outputs.artifact }}
+
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          ARTIFACT: ${{ needs.build.outputs.artifact }}
+          TEAM: ${{ needs.sign.outputs.team }}
+        run: |
+          set -euo pipefail
+          SHA="$(cut -d' ' -f1 "$DIST/$ARTIFACT.sha256")"
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Framescribe $VERSION for the Mac, built by this repository's release workflow from commit \`$GITHUB_SHA\`, signed with a Developer ID certificate (Team ID \`$TEAM\`) and notarized by Apple.
+
+          **Needs:** macOS 15 or later on Apple Silicon, and \`ffmpeg\` (\`brew install ffmpeg\`). On first launch the app checks its requirements and offers to download the speech model (about 2.5 GB, once).
+
+          **Install:** download \`$ARTIFACT\`, unzip it, move Framescribe.app to Applications and open it.
+
+          **Verify** (each line checks one thing):
+
+          \`\`\`sh
+          shasum -a 256 -c $ARTIFACT.sha256       # the download is intact
+          gh attestation verify $ARTIFACT --repo $GITHUB_REPOSITORY \\
+              --source-ref refs/tags/$GITHUB_REF_NAME \\
+              --signer-workflow $GITHUB_REPOSITORY/.github/workflows/release.yml
+                                                  # this workflow built this file from the tagged commit
+          spctl --assess --type execute -vv /Applications/Framescribe.app
+                                                  # accepted, source=Notarized Developer ID
+          codesign -dvv /Applications/Framescribe.app 2>&1 | grep TeamIdentifier
+                                                  # TeamIdentifier=$TEAM
+          \`\`\`
+
+          SHA-256 of \`$ARTIFACT\`: \`$SHA\`
+
+          The command line tool and building the app from source are described in the README.
+          EOF
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" "$DIST"/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Framescribe $VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --verify-tag
