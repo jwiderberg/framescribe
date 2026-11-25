@@ -292,14 +292,130 @@ one and the signed bundle never changes. It signs every Mach-O file of the runti
 app (counting codesign's "replacing existing signature" lines instead of printing each), and checks with
 `codesign --verify --deep --strict`. The runtime is rebuilt only when `uv.lock`, `pyproject.toml`, `README.md`,
 `LICENSE`, the sources, the launcher, the script or the deployment target change. `--out DIR` builds into another
-folder than `app/build`. With `--sign IDENTITY` it signs with the hardened runtime and a
-timestamp (the Python executable with `app/Support/runtime.entitlements`: unsigned executable memory for libffi
-closures, no library validation), and `--notarize PROFILE` submits it with `xcrun notarytool` and staples the ticket.
+folder than `app/build`. Without options the build is signed ad hoc with no hardened runtime and no entitlements.
+`--sign IDENTITY`, `--hardened`, `--notarize PROFILE` and `--zip` are described under [Release](#release).
 
 Not sandboxed: the app starts a bundled interpreter that reads videos from anywhere and writes to a folder the user
 chooses, and the tool it runs spawns `ffmpeg`; a sandboxed app would need security-scoped bookmarks for every input and
 output and could not hand them to the child. It needs no network entitlement (only `setup`, run on request, downloads),
 collects nothing and does not update itself.
+
+## Release
+
+`.github/workflows/release.yml` turns a tag `v<version>` into a GitHub release with `Framescribe-<version>.zip`
+(Developer ID signed, notarized, stapled) and its `.sha256`. `docs/RELEASING.md` is the owner's procedure, including
+the repository settings it relies on.
+
+```
+tag v0.1.0 ─> build (macos-15, read-only, no secrets)    sign (macos-15, environment release,   publish (ubuntu, no secrets,
+                checkout, tag == v + pyproject version      read-only, the five secrets)            contents/id-token/
+                setup-uv (pinned, no cache)                 checkout (scripts only)                 attestations: write)
+                app/build_app.sh   (all third-party code)   download, sha256, ditto -x              download, sha256sum -c
+                ditto zip + sha256 ─> artifact ──────────>  import .p12, throwaway keychain         attest provenance
+                                                            app/sign_app.sh --identity ...          notes (Team ID)
+                                                            delete keychain                         gh release create
+                                                            app/preflight_app.sh (release gate)       --verify-tag
+                                                            notarytool submit --wait, log on failure
+                                                            stapler staple/validate, spctl --assess
+                                                            app/package_app.sh ─> artifact ───────>
+```
+
+- Triggers: a pushed tag `v*`, or a manual run (`workflow_dispatch`) whose `dry_run` input defaults to true. No
+  `pull_request`, `pull_request_target` or `workflow_run`. A dry run goes through build and sign, notarization and
+  stapling included, and keeps the zip as a workflow artifact for 7 days. The publish job runs only when
+  `github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run == false)`, so a dry run attests and
+  publishes nothing. A manual run from a branch must be a dry run (the version step stops otherwise), and the sign job
+  of such a run waits for the `release` environment to admit that branch.
+- Jobs: dependency code never runs where the secrets are. `build` has no environment, no secrets and a read-only
+  token. It does everything that downloads or runs third-party code (uv, the standalone CPython, the wheels,
+  byte-compiling, the import checks of the embedded runtime) and hands the ad-hoc bundle to `sign` as a `ditto` zip
+  with its SHA-256 (a zip of the bundle, because artifact uploads do not keep file modes). `sign` is the only job with
+  an environment (`release`, with a required reviewer and deployments limited to tags `v*`) and the only one that
+  references `secrets.`. It checks out the tag for the repository's own scripts (`app/sign_app.sh`,
+  `app/preflight_app.sh`, `app/package_app.sh`, `app/Support/*.entitlements`), checks the bundle's checksum and
+  version, and only signs, checks, notarizes, staples and zips. It uses no setup action, restores no cache, installs
+  nothing and never runs the embedded Python. `publish` has no secrets and the only write permissions.
+- Runner: `macos-15` for build and sign, Apple Silicon and the app's own minimum macOS. `build_app.sh` runs the
+  embedded runtime on the build machine (the import check), so the build runner must be able to run the bundle, and the
+  floor OS shows it loads there. The newest Xcode on the image is selected for the Swift build.
+- Supply chain: uv is installed by `astral-sh/setup-uv` pinned to a commit, with uv itself pinned to `0.11.10` and the
+  action's cache off. That uv decides the standalone CPython build and checks its SHA-256, and builds the framescribe
+  wheel with its built-in backend (`uv_build>=0.11,<0.12`), so nothing outside the lockfile is fetched for it. The
+  wheels come from `uv export --locked` and `uv pip install --require-hashes --only-binary :all:`, as in a local build.
+  Nothing is cached between runs. Every action is pinned to a 40-hex commit with its version in a comment.
+- Secrets: `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`, `NOTARY_KEY_P8_BASE64`, `NOTARY_KEY_ID`,
+  `NOTARY_ISSUER_ID`, environment secrets of `release`, set by `scripts/release-secrets.sh` (`gh secret set --env
+  release`, values on standard input, stops if the environment is missing, `--dry-run` calls no GitHub API). They
+  appear only in the `env:` of the import and notarize steps of the sign job, never in a `run:` script. The keychain is
+  deleted right after signing and again in an `always()` step, with the `.p12`, the `.p8` and the upload zip. Apple's
+  Developer ID G2 intermediate is downloaded and checked against a pinned SHA-256.
+- `tests/test_release.py` holds these properties: the triggers (and no others), read-only top-level permissions and
+  per-job permissions, `sign` the only job with an environment and the only one with the five secret names, only
+  through `env:`, no secret in `build` or `publish`, no setup-uv, cache, build script or embedded Python in `sign`, no
+  shell tracing, no secret echoed, the keychain cleanup with `always()`, pinned actions, no cache anywhere, the pinned uv
+  matching `uv_build`, the publish condition evaluated for push, dry-run and branch cases, the checksum check before the
+  attestation, `bash -n` of every `run:` block, and the version step executed for a matching tag, a wrong tag and a
+  branch. It also runs the secrets script against throwaway certificates and a stub `gh`, `sign_app.sh`, the preflight
+  and packaging scripts against a tiny bundle, and `build_app.sh --clean` against a folder with other files in it.
+
+Signing: `app/sign_app.sh` signs any finished bundle and runs nothing from it. `build_app.sh` calls it for every build
+and the workflow's sign job calls it directly, so local and CI signing share one code path.
+
+- Default (`sign_app.sh APP`, `build_app.sh` without options): ad hoc, no hardened runtime, no entitlements, as before.
+- `--identity IDENTITY` (`build_app.sh --sign`): every Mach-O file of the runtime, then `bin/python3.12` with
+  `app/Support/runtime.entitlements`, then the app, each with `--options runtime --timestamp` (and `--keychain` when
+  given). Locally, `build_app.sh --sign` then runs the signed Python
+  once (`import framescribe.cli, framescribe.pipeline, Vision, Quartz, mlx.core, cv2, numpy, scipy, parakeet_mlx,
+  librosa, numba` and a numba-compiled function), checks the bundle still verifies, and runs `app/preflight_app.sh`.
+  `--notarize PROFILE` then submits with a `notarytool` keychain profile, prints `notarytool log` on a rejection,
+  staples, validates and asks `spctl`. `--zip` runs `app/package_app.sh`.
+- `--hardened` (both scripts): the same with the identity `-`. `--timestamp=none`, because a secure timestamp needs a
+  certificate. `bin/python3.12` gets `app/Support/runtime-adhoc-test.entitlements`. `preflight_app.sh --allow-adhoc`
+  checks it.
+- `build_app.sh --clean` removes only what the script makes: `work/`, `Framescribe.app` and the zips in the output
+  folder, and `app/.build`. The output folder itself stays, so `--out` can name a folder that holds other files.
+
+Entitlements, found by building the hardened ad-hoc bundle with none and adding one at a time (each probe a separate
+process of the bundle's Python: ctypes callbacks, llvmlite MCJIT, numba, librosa, MLX on the GPU, `mx.compile` on GPU
+and CPU, Vision, OpenCV, SciPy):
+
+| Entitlement (on `bin/python3.12` only) | Release | `--hardened` | Without it |
+|---|---|---|---|
+| `com.apple.security.cs.allow-unsigned-executable-memory` | yes | yes | llvmlite, numba and `import librosa` die with SIGKILL (Code Signature Invalid), crash report termination `CODESIGNING`, "Invalid Page". librosa compiles numba functions at import and the speech stage imports it (`parakeet_mlx.audio`). `allow-jit` does not help: LLVM's memory manager does not use `MAP_JIT`. |
+| `com.apple.security.cs.disable-library-validation` | no | yes | Ad hoc: every bundled extension module fails to load, "mapping process and mapped file (non-platform) have different Team IDs" (an ad-hoc signature has no Team ID). |
+| `com.apple.security.cs.allow-jit` | no | no | Nothing failed without it. |
+| `com.apple.security.get-task-allow` | no | no | Notarization refuses it. |
+
+Why the release needs no `disable-library-validation`: with a Developer ID every Mach-O file in the bundle carries the
+same Team ID, and library validation admits those and Apple's own. A full run of the default build on a 3-minute
+video with `DYLD_PRINT_LIBRARIES` mapped 72 images from the bundle, 917 from the system and none from anywhere else.
+One path would break: `mx.compile` on the CPU writes a C++ kernel to `/tmp/mlx/<version>/cpu/`, compiles it with the
+system compiler and `dlopen`s the result, an ad-hoc library that library validation refuses in a Developer ID process.
+The pipeline runs MLX on the GPU and never takes that path. ctypes callbacks ran under the hardened runtime with no
+entitlement at all. The app's own executable needs no entitlement.
+
+What the hardened ad-hoc build shows locally: every Mach-O file carries the runtime flag and a valid signature, and
+the whole pipeline (MLX speech on Metal, numba through librosa, Apple Vision OCR, the report) runs under the hardened
+runtime with the release's executable-memory rule, from `framescribe-e2e` and from the app opened with `open -a`.
+What it cannot show: library validation with a Team ID, secure timestamps, notarization and stapling. The preflight
+checks the timestamps and the Team ID in CI, and the workflow notarizes, staples and asks Gatekeeper. Library
+validation with the Team ID is left unproven by CI on purpose, because the sign job does not run the embedded Python:
+the first real check is opening the dry-run zip on a Mac and processing one video (docs/RELEASING.md). A local
+`build_app.sh --sign` with a Developer ID runs the same imports under it before the preflight. If that check fails
+with a library-validation error, `disable-library-validation` goes back into `runtime.entitlements`.
+
+`app/preflight_app.sh [--allow-adhoc] APP` prints PASS, FAIL or SKIP per check and exits 1 on a failure: every Mach-O
+file has a valid signature of its own (`codesign --verify --strict`, Contents/Resources included) and the runtime flag
+(`0x10000`), a Developer ID Application authority, a secure timestamp and one Team ID across all of them (skipped with
+`--allow-adhoc`), no `get-task-allow`, exactly the expected entitlements on `bin/python3.12` and none on the app's
+executable, every Mach-O file built against the macOS 10.9 SDK or newer (`vtool -show-build`), only Mach-O files in
+Contents/MacOS, no static library, no symbolic link that is absolute or leaves the bundle, no quarantine, Finder
+information or resource fork attribute, and `codesign --verify --deep --strict` on the bundle. On the hardened
+ad-hoc build all of them pass (292 Mach-O files, the oldest SDK 11.0).
+
+`app/package_app.sh [--out DIR] APP` writes `<CFBundleName>-<CFBundleShortVersionString>.zip` with
+`ditto -c -k --keepParent` and a `.sha256` in `shasum -a 256 -c` format. The zip of the hardened ad-hoc build is 207 MB
+(the bundle 639 MB).
 
 ## Speech
 

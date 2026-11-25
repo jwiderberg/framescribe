@@ -56,7 +56,20 @@ out/recording/
 
 ## Mac app
 
-Drop a video on the window or the app icon. It runs the whole pipeline, shows each stage's progress and ends with buttons to open the report, show the folder in the Finder or copy its path. You build it yourself from a clone. It carries its own Python, so apart from `ffmpeg` it needs nothing from the command line install.
+Drop a video on the window or the app icon. It runs the whole pipeline, shows each stage's progress and ends with buttons to open the report, show the folder in the Finder or copy its path. It carries its own Python, so apart from `ffmpeg` it needs nothing from the command line install.
+
+### Download
+
+Releases are on the [releases page](https://github.com/jwiderberg/framescribe/releases). Each one is a zip of `Framescribe.app`, built from the tagged commit by this repository's release workflow, signed with a Developer ID and notarized by Apple. If the page lists no release yet, build the app from source (below).
+
+1. Download `Framescribe-<version>.zip` from the latest release and unzip it (double-click it in the Finder).
+2. Move `Framescribe.app` to `/Applications`.
+3. Install `ffmpeg` if it is missing: `brew install ffmpeg`.
+4. Open the app. The first launch runs the same checks as [doctor](#doctor) and says what is missing. If the speech model is missing, a button downloads it (about 2.5 GB, once). Then drop a video on the window.
+
+The release notes say how to check a download: its SHA-256 (`shasum -a 256 -c`), that this repository's workflow built it (`gh attestation verify`) and that Apple notarized it (`spctl --assess`). [docs/RELEASING.md](docs/RELEASING.md) describes how a release is made.
+
+### Build from source
 
 ```
 git clone https://github.com/jwiderberg/framescribe.git
@@ -67,19 +80,26 @@ open app/build/Framescribe.app
 
 `build_app.sh` needs the Swift compiler (the Command Line Tools are enough, `xcode-select --install`) and uv. It downloads a standalone Python 3.12 and the locked dependencies through uv and writes only to `app/build/` (or `--out DIR`), `app/.build/` and uv's cache. The minimum is macOS 15.0 because one locked dependency, `opencv-python-headless` 5.1.0.95, only has wheels for macOS 15 and later. `app/build_app.sh --help` lists the options. Move the app anywhere you like, for example to `/Applications`.
 
+A source build is signed ad hoc, which is enough on the Mac that built it. On another Mac, Gatekeeper refuses to open it the first time because it is not from an identified developer or notarized. That Mac's user can allow it under System Settings ▸ Privacy & Security ▸ Open Anyway. A source build is also a different app from the download as far as macOS is concerned, so permissions granted to one do not carry over to the other.
+
+To sign and notarize a build with your own Developer ID (`PROFILE` is a keychain profile made with `xcrun notarytool store-credentials PROFILE`):
+
+```
+app/build_app.sh --sign "Developer ID Application: Your Name (TEAMID)" --notarize PROFILE --zip
+```
+
+`--sign` turns on the hardened runtime and a secure timestamp and checks the result with `app/preflight_app.sh` before anything is uploaded. `app/build_app.sh --hardened` signs ad hoc with the hardened runtime, to try that out without a certificate.
+
+### Using it
+
 - **Adding videos.** Drop them on the window or on the app icon in the Dock or the Finder, use File ▸ Open… (⌘O), or run `open -a Framescribe path/to/video.mp4`. They run one at a time, in the order they came.
 - **Stop** ends a run cleanly. Finished stages stay cached, so adding the same video again continues from there.
 - **Closing the window** while something runs (a video or the model download) does not stop it. Click the Dock icon to get the window back. With nothing running, closing the window quits the app. Quit (⌘Q) asks first if something runs.
 - **Output** goes to `~/Documents/framescribe/<video name>/`: the same files as `framescribe run`, plus `framescribe-app.log`. If that folder holds results of a different video with the same name, the app uses `<video name> 2`, `<video name> 3` and so on. Settings (⌘,) changes the output folder.
 - **When more than usual was filled in** (see [Accuracy and completeness](#accuracy-and-completeness)) the finished job shows a warning with the share. The report is ready as usual.
 - **First start.** The app runs the same checks as [doctor](#doctor). It looks for `ffmpeg` in `/opt/homebrew/bin`, `/usr/local/bin` and the `PATH` of your login shell, because apps started from the Finder do not see your shell's `PATH`. If the speech model is missing, a button downloads it (about 2.5 GB, into the Hugging Face cache, shared with the command line tool). Nothing is downloaded until you click it.
-- **Signing.** The build is signed ad hoc, which is enough on the Mac that built it. On another Mac, Gatekeeper refuses to open it the first time because it is not from an identified developer or notarized. That Mac's user can allow it under System Settings ▸ Privacy & Security ▸ Open Anyway. To hand it out properly, sign and notarize it with your own Developer ID (`PROFILE` is a keychain profile made with `xcrun notarytool store-credentials PROFILE`):
 
-  ```
-  app/build_app.sh --sign "Developer ID Application: Your Name (TEAMID)" --notarize PROFILE
-  ```
-
-The app is not sandboxed (it starts the bundled Python and reads videos from anywhere). It collects nothing and does not update itself. Build details are in [docs/DESIGN.md](docs/DESIGN.md#app).
+The app is not sandboxed (it starts the bundled Python and reads videos from anywhere). It collects nothing and does not update itself. Build and release details are in [docs/DESIGN.md](docs/DESIGN.md#app).
 
 ## Command line install
 
@@ -308,11 +328,12 @@ app/.build/debug/framescribe-e2e --app app/build/Framescribe.app --video VIDEO -
 
 ```
 src/framescribe/   the package: CLI, pipeline, stages, report
-scripts/              measurement scripts
+scripts/              measurement scripts, release-secrets.sh
 install.sh            the installer
 docs/DESIGN.md        design, stage rules, artifact contracts, file layout
 docs/MEASUREMENTS.md  measured numbers and what they were measured on
-app/                  the Mac app: Swift package, build_app.sh, run_tests.sh
+app/                  the Mac app: Swift package, build_app.sh, run_tests.sh, preflight_app.sh
+.github/workflows/    release.yml, the signed and notarized release (docs/RELEASING.md)
 ```
 
 `timeline.json` is the data contract of the report. `--progress json` and `--transcript` are the integration points for a host application.
