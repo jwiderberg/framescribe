@@ -23,6 +23,8 @@ from ..models import (
 from ..words import segment_sentences
 from .asr_import import import_transcript
 from ..errors import GateError
+from ..mdtext import MARKS, marked_text  # noqa: F401  (MARKS: the filled-word marks, here since the asr stage adds them)
+from ..safeio import atomic_write_text
 from .base import Context, Stage
 
 VERSION = 7  # 7: a share above the limit is kept with a warning (`above_limit`, `limit`) unless --strict-completeness
@@ -30,7 +32,6 @@ NEAREST_CAPTION_SECONDS = 4.0
 NAME = "asr"
 FILENAME = "transcript.json"
 GATE_FAILED = "transcript.gate-failed.json"  # under work/: the transcript the gate refused, for diagnosis
-MARKS = {True: ("[+ ", " +]"), False: ("[? ", " ?]")}  # filled words: confirmed, unconfirmed
 
 
 def assign_speaker(start: float, end: float, captions: Sequence[Caption]) -> str | None:
@@ -52,25 +53,6 @@ def assign_speaker(start: float, end: float, captions: Sequence[Caption]) -> str
     if best and best[1] > 0:
         return best[0]
     return nearest[1] if nearest and nearest[0] <= NEAREST_CAPTION_SECONDS else None
-
-
-def marked_text(words: Sequence[TranscriptWord]) -> str:
-    """The words joined by spaces, each run of filled words in its mark: [+ confirmed +] or [? unconfirmed ?]."""
-    out: list[str] = []
-    i = 0
-    while i < len(words):
-        w = words[i]
-        if not w.filled:
-            out.append(w.text)
-            i += 1
-            continue
-        j = i
-        while j < len(words) and words[j].filled and bool(words[j].confirmed) == bool(w.confirmed):
-            j += 1
-        left, right = MARKS[bool(w.confirmed)]
-        out.append(left + " ".join(x.text for x in words[i:j]) + right)
-        i = j
-    return " ".join(out)
 
 
 def build_transcript(primary: AsrArtifact, others: Sequence[AsrArtifact], captions: Sequence[Caption] = (),
@@ -143,7 +125,7 @@ def run(ctx: Context, backends: tuple[str, ...]) -> TranscriptArtifact:
             # not the stage's artifact (that is only written on success, so a failed stage never reads as cached):
             # the refused transcript with its figures and gaps, for diagnosis
             failed.parent.mkdir(parents=True, exist_ok=True)
-            failed.write_text(transcript.model_dump_json(indent=1))
+            atomic_write_text(failed, transcript.model_dump_json(indent=1))
             raise GateError(problem, c.model_dump(exclude={"gaps"}))
         failed.unlink(missing_ok=True)
         if (warning := above_limit_warning(c, cfg.max_filled_share)) is not None:

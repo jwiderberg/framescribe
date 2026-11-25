@@ -109,7 +109,9 @@ def test_the_stage_loads_the_model_only_when_it_is_in_the_local_cache_and_then_o
     fake_mlx(monkeypatch, [])
     ctx, _ = stage_context(tmp_path)
     asr_parakeet.run(ctx)
-    assert loads == [(ctx.config.parakeet_model, "1")]
+    # the pinned snapshot's folder from the cache (Path("m/model.safetensors") in the fake), never the repository name,
+    # which parakeet-mlx would resolve to the branch main
+    assert loads == [("m", "1")]
 
 
 def test_the_stage_without_the_model_in_the_local_cache_raises_and_never_calls_the_loader(monkeypatch, tmp_path):

@@ -10,6 +10,7 @@ from typing import Any, TypeVar
 from ..config import Config
 from ..errors import StageError
 from ..models import Artifact
+from ..safeio import open_log
 
 __all__ = ["Context", "Stage", "StageError"]
 
@@ -42,7 +43,7 @@ class Context:
     def log(self, message: str) -> None:
         """Record a message in the stage log file and in the event stream. Stages never print."""
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.log_path.open("a") as f:
+        with open_log(self.log_path) as f:  # O_NOFOLLOW: a link planted at the log's name is not written through
             f.write(message.rstrip("\n") + "\n")
         self.emit("log", stage=self.stage, message=message)
 

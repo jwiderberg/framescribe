@@ -6,6 +6,8 @@ the three files in the run directory are side files, so deleting or truncating o
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .. import __version__
 from ..cache import write_if_changed
 from ..models import AsrArtifact, IngestArtifact, OcrArtifact, TimelineArtifact, TranscriptArtifact, VisualArtifact
@@ -14,7 +16,7 @@ from ..steps import build_steps, find_chrome
 from ..timeline import build_timeline
 from .base import Context, Stage, StageError
 
-VERSION = 5  # 5: the Completeness row leads with a share above the usual level
+VERSION = 6  # 6: recorded text escaped (mdtext), the data-not-instructions note, timeline.json names the file only
 NAME = "report"
 SIDE_FILES = ("../report.md", "../timeline.json", "../ANALYSIS_PROMPT.md")
 
@@ -38,8 +40,9 @@ def run(ctx: Context) -> TimelineArtifact:
     ctx.progress(0, 1, "steps", "choosing steps")
     chrome = find_chrome(ocr)
     plans = build_steps(visual, transcript, ocr, chrome, cfg.step_min_seconds, cfg.step_max_seconds, cfg.step_extra_frames)
+    # timeline.json is meant to be shared: the video's file name only, not where it is on this machine
     timeline = build_timeline(
-        ingest.source, transcript.primary, visual, transcript, ocr, plans, chrome, cfg.step_min_seconds, cfg.step_max_seconds,
+        Path(ingest.source).name, transcript.primary, visual, transcript, ocr, plans, chrome, cfg.step_min_seconds, cfg.step_max_seconds,
         on_step=lambda done, total: ctx.progress(done, total, "steps", f"timeline of step {done}/{total}"),
     )
     ctx.progress(len(plans), len(plans), "steps", "writing report.md")

@@ -25,7 +25,7 @@ from pathlib import Path
 from framescribe.chunking import Levels, read_wav
 from framescribe.completeness import Source, caption_source, cluster, find_gaps, normalise
 from framescribe.config import Config
-from framescribe.doctor import require_cached_model
+from framescribe.doctor import model_load_path, require_cached_model
 from framescribe.models import AsrArtifact, Cut, IngestArtifact, Word
 from framescribe.stages.asr_parakeet import Decoding, decode_pass, plan_cuts
 from framescribe.words import attach_leading_punctuation, finalize_words
@@ -116,7 +116,7 @@ def main() -> None:
         os.environ.setdefault("HF_HUB_VERBOSITY", "error")
         from parakeet_mlx import from_pretrained
 
-        model = from_pretrained(Config().parakeet_model)
+        model = from_pretrained(model_load_path(Config().parakeet_model))  # the pinned snapshot
     results = json.loads(args.out.read_text()) if args.out.is_file() else {}
     decodes = args.out.with_suffix(".decodes")
     decodes.mkdir(exist_ok=True)

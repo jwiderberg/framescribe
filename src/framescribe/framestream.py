@@ -14,7 +14,7 @@ from collections.abc import Iterable, Iterator
 import numpy as np
 
 from .errors import StageError
-from .ffmpeg import FfmpegError
+from .ffmpeg import MAX_DURATION_SECONDS, FfmpegError, input_args
 from .models import Rect
 from .proc import child_process
 
@@ -53,8 +53,8 @@ def _read_frames(cmd: list[str], frame_bytes: int) -> Iterator[bytearray]:
 
 def gray_frames(source, rect: Rect, fps: float) -> Iterator[np.ndarray]:
     """Every sample (`fps` per second) of the `rect` crop as an (h, w) uint8 array, in order. Arrays are not reused."""
-    cmd = ["ffmpeg", "-nostdin", "-v", "error", "-i", str(source), "-map", "0:v:0", "-vf", _base_filter(rect, fps),
-           "-pix_fmt", "gray", "-f", "rawvideo", "-"]
+    cmd = ["ffmpeg", "-nostdin", "-v", "error", *input_args(source), "-map", "0:v:0", "-vf", _base_filter(rect, fps),
+           "-t", str(MAX_DURATION_SECONDS), "-pix_fmt", "gray", "-f", "rawvideo", "-"]
     for buf in _read_frames(cmd, rect.w * rect.h):
         yield np.frombuffer(buf, np.uint8).reshape(rect.h, rect.w)
 
@@ -87,7 +87,7 @@ def rgb_frames(source, rect: Rect, fps: float, indices: Iterable[int]) -> Iterat
     wanted = sorted(set(indices))
     for start in range(0, len(wanted), MAX_SELECT_TERMS):
         chunk = wanted[start : start + MAX_SELECT_TERMS]
-        cmd = ["ffmpeg", "-nostdin", "-v", "error", "-i", str(source), "-map", "0:v:0", "-vf",
+        cmd = ["ffmpeg", "-nostdin", "-v", "error", *input_args(source), "-map", "0:v:0", "-vf",
                f"{_base_filter(rect, fps)},select='{_select_expr(chunk)}'", "-fps_mode", "passthrough",
                "-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
         cmd[cmd.index("-f"):cmd.index("-f")] = ["-frames:v", str(len(chunk))]  # stop decoding after the last one

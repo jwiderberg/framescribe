@@ -68,6 +68,10 @@ def _model_files(repo: str):
     return hub.cached_model_files(repo)
 
 
+def _model_hash_problem(repo: str, files) -> str | None:
+    return hub.model_problem(repo, files)
+
+
 def _hf_cache_dir():
     return hub.cache_dir()
 
@@ -132,16 +136,24 @@ def check_ffmpeg_tool(tool: str) -> Check:
     return Check(tool, OK, f"{version} ({path})")
 
 
-def check_model(repo: str | None = None) -> Check:
+def check_model(repo: str | None = None, verify: bool = False) -> Check:
+    """The speech model at its pinned revision in the cache; with `verify`, also the SHA-256 of its files (a read of
+    about 2.5 GB, no network): `doctor` and `setup` verify, `run` only looks for the files."""
     repo = repo or Config().parakeet_model
     files = _model_files(repo)
+    pinned = f" at revision {hub.MODEL_REVISION[:12]}" if repo == hub.MODEL_REPO else ""
     if files is None:
         return Check(
             "speech model", MISSING,
-            f"{repo} is not in the Hugging Face cache ({_hf_cache_dir()}); the download is about {hub.MODEL_SIZE_GB} GB",
+            f"{repo}{pinned} is not in the Hugging Face cache ({_hf_cache_dir()}); the download is about "
+            f"{hub.MODEL_SIZE_GB} GB",
             "framescribe setup",
         )
-    return Check("speech model", OK, f"{repo} ({files['model.safetensors'].parent})")
+    if verify and (problem := _model_hash_problem(repo, files)) is not None:
+        return Check("speech model", MISSING, f"the cached model is not the pinned one: {problem}",
+                     "framescribe setup (it removes the wrong file and downloads it again)")
+    checked = ", SHA-256 checked" if verify and repo == hub.MODEL_REPO else ""
+    return Check("speech model", OK, f"{repo}{pinned} ({files['model.safetensors'].parent}{checked})")
 
 
 def check_ocr() -> Check:
@@ -189,7 +201,7 @@ def check_whisperkit(cfg: Config | None = None) -> Check:
 
 
 def run_checks(cfg: Config | None = None) -> list[Check]:
-    model = check_model(cfg.parakeet_model if cfg else None)
+    model = check_model(cfg.parakeet_model if cfg else None, verify=True)
     return [
         check_platform(), check_python(), check_ffmpeg_tool("ffmpeg"), check_ffmpeg_tool("ffprobe"), model, check_ocr(),
         check_disk(model.status == OK), check_memory(), check_whisperkit(cfg),
@@ -242,6 +254,14 @@ def uncached_model_problem(repo: str | None = None) -> str | None:
     that calls the pipeline as a library is guarded too) and, through `require_cached_model`, by the scripts."""
     hub.go_offline()
     return _blocking_message([check_model(repo)])
+
+
+def model_load_path(repo: str | None = None) -> str:
+    """What to give parakeet-mlx's `from_pretrained`: the folder of the pinned snapshot in the cache (given the
+    repository name it would read the branch main instead), or the name when the model is not cached."""
+    repo = repo or Config().parakeet_model
+    files = _model_files(repo)
+    return str(files["model.safetensors"].parent) if files else repo
 
 
 def require_cached_model(repo: str | None = None) -> None:

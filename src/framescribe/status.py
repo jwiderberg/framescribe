@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from collections.abc import Callable
@@ -16,7 +17,7 @@ from rich.progress_bar import ProgressBar
 from rich.table import Table
 from rich.text import Text
 
-from .fmt import timestamp
+from .fmt import terminal_text, timestamp
 
 ProgressMode = Literal["auto", "rich", "plain", "json"]
 PLAIN_PROGRESS_INTERVAL = 5.0  # seconds between progress lines of one stage in plain mode
@@ -39,6 +40,16 @@ class StageState:
     log_path: str | None = None
 
 
+def _clean(value: Any) -> Any:
+    if isinstance(value, str):
+        return terminal_text(value)
+    if isinstance(value, dict):
+        return {k: _clean(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_clean(v) for v in value]
+    return value
+
+
 @dataclass
 class RunState:
     """What the event stream says so far. `now` is injectable so tests control time."""
@@ -55,6 +66,7 @@ class RunState:
     finished_wall: float | None = None
 
     def apply(self, ev: dict[str, Any]) -> None:
+        ev = _clean(ev)  # what the rich panel shows: no control character from a file name or a message
         kind = ev["event"]
         if kind == "run_start":
             self.started = self.now()
@@ -141,7 +153,11 @@ class PlainRenderer:
         return f"{pct} {amount} {ev['note'] or ''}".rstrip()
 
     def _line(self, t: float, who: str, text: str) -> None:
-        print(f"[{timestamp(t)}] {who:15} {text}", file=self.out, flush=True)
+        # file names and messages come from the video and its tools: no control character reaches the terminal
+        print(f"[{timestamp(t)}] {terminal_text(who):15} {terminal_text(text.replace(chr(10), " "))}", file=self.out, flush=True)
+
+
+_C1 = re.compile(r"[\x7f-\x9f]")
 
 
 class JsonRenderer:
@@ -151,7 +167,9 @@ class JsonRenderer:
         self.out = out or sys.stdout
 
     def __call__(self, ev: dict[str, Any]) -> None:
-        print(json.dumps(ev, ensure_ascii=False), file=self.out, flush=True)
+        # json.dumps escapes C0 controls itself; C1 controls (U+0080 to U+009F) it leaves raw, so they are escaped too
+        line = _C1.sub(lambda m: f"\\u{ord(m.group()):04x}", json.dumps(ev, ensure_ascii=False))
+        print(line, file=self.out, flush=True)
 
 
 class RichRenderer:

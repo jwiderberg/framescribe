@@ -21,6 +21,7 @@ from ..errors import StageError
 from ..fmt import timestamp
 from ..framestream import gray_frames, rgb_frames
 from ..models import CapInfo, Change, CursorSample, IngestArtifact, VisualArtifact, VisualState
+from ..safeio import atomic_output
 from .base import Context, Stage
 
 VERSION = 3
@@ -132,13 +133,10 @@ def _write_keyframes(ctx: Context, rect, params: DetectParams, found, names: lis
     for index, rgb in rgb_frames(ctx.source, rect, params.fps, by_index):
         name, state = by_index[index]
         _check_same_frame(rgb, state.signature, name)
-        dest = frames_dir / name
-        part = dest.with_name(dest.name + ".part")
-        try:
-            Image.fromarray(rgb).save(part, format="JPEG", quality=ctx.config.keyframe_quality, subsampling=0)
-            part.replace(dest)
-        finally:
-            part.unlink(missing_ok=True)
+        # a new file with an unpredictable name, renamed over the key frame: a link planted in frames/ is replaced,
+        # never written through
+        with atomic_output(frames_dir / name, suffix=".part") as f:
+            Image.fromarray(rgb).save(f, format="JPEG", quality=ctx.config.keyframe_quality, subsampling=0)
         done += 1
         ctx.progress(done, total, "key frames", f"saving key frame {done}/{total}")
 

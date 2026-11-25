@@ -1,6 +1,7 @@
 """`doctor`, `setup`, `--version` and the checks `run` makes first. No network, no model, no real machine probing."""
 
 import json
+import re
 import os
 from pathlib import Path
 
@@ -42,6 +43,10 @@ def machine(monkeypatch, tmp_path):
     monkeypatch.setattr(doctor, "_which", lambda name: state["tools"].get(name))
     monkeypatch.setattr(doctor, "_tool_version", lambda path: state["versions"].get(path))
     monkeypatch.setattr(doctor, "_model_files", lambda repo: state["model"])
+    # the SHA-256 check of the model's files, recorded: None means they match the pinned hashes
+    state["hashed"] = []
+    monkeypatch.setattr(doctor, "_model_hash_problem",
+                        lambda repo, files: state["hashed"].append(repo) or state.get("model_problem"))
     monkeypatch.setattr(doctor, "_hf_cache_dir", lambda: tmp_path / "hub")
     monkeypatch.setattr(doctor, "_vision_importable", lambda: state["vision"])
     monkeypatch.setattr(doctor, "_free_disk_gb", lambda path: state["disk"])
@@ -317,3 +322,101 @@ def test_the_model_check_answers_from_the_local_cache_in_offline_mode():
     """`cached_model_files` for a repository that is not cached answers None; offline mode is on, so any attempt to
     reach the network would raise instead."""
     assert hub.cached_model_files("some-owner/some-model") is None
+
+
+# ---- the pinned model --------------------------------------------------------------------------------------------
+
+
+def test_doctor_checks_the_pinned_hashes_and_a_mismatch_is_a_missing_model(machine):
+    machine["model_problem"] = "model.safetensors of x has SHA-256 0000..., expected 05e0..."
+    res = runner.invoke(app, ["doctor", "--json"])
+    assert res.exit_code == 1
+    model = next(c for c in json.loads(res.output)["checks"] if c["name"] == "speech model")
+    assert model["status"] == "missing" and "not the pinned one" in model["detail"]
+    assert "framescribe setup" in model["fix"]
+    assert machine["hashed"] == [hub.MODEL_REPO]
+
+
+def test_doctor_names_the_pinned_revision(machine):
+    res = runner.invoke(app, ["doctor", "--json"])
+    model = next(c for c in json.loads(res.output)["checks"] if c["name"] == "speech model")
+    assert hub.MODEL_REVISION[:12] in model["detail"] and "SHA-256 checked" in model["detail"]
+
+
+def test_run_looks_for_the_pinned_files_without_hashing_them(machine, tmp_path):
+    assert doctor.start_up_problem(Config()) is None
+    assert machine["hashed"] == []  # 2.5 GB are read by doctor and setup only, not before every run
+
+
+def test_setup_removes_a_mismatched_file_and_downloads_again(machine, monkeypatch):
+    machine["model_problem"] = "model.safetensors differs"
+    monkeypatch.setattr(hub, "cache_dir", lambda: Path("/cache"))
+    monkeypatch.setattr(hub, "free_gb", lambda path: 50.0)
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    removed, downloads = [], []
+    monkeypatch.setattr(hub, "discard_mismatched", lambda repo: removed.append(repo) or [Path("/cache/blob")])
+
+    def download(repo):
+        downloads.append(repo)
+        machine["model_problem"] = None
+        return []
+
+    monkeypatch.setattr(hub, "download_model", download)
+    res = runner.invoke(app, ["setup"])
+    assert res.exit_code == 0, res.output
+    assert removed == downloads == [hub.MODEL_REPO]
+    assert "removed a cached model file that is not the pinned one" in res.output
+
+
+def test_the_pinned_revision_and_hashes_are_well_formed():
+    assert hub.MODEL_REPO == Config().parakeet_model
+    assert re.fullmatch(r"[0-9a-f]{40}", hub.MODEL_REVISION)
+    assert set(hub.MODEL_SHA256) == set(hub.MODEL_FILES)
+    assert all(re.fullmatch(r"[0-9a-f]{64}", v) for v in hub.MODEL_SHA256.values())
+
+
+def test_cached_files_are_looked_up_at_the_pinned_revision(monkeypatch, tmp_path):
+    import huggingface_hub
+
+    asked = []
+    f = tmp_path / "f"
+    f.write_text("x")
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
+                        lambda repo, name, revision=None: asked.append((repo, name, revision)) or str(f))
+    assert hub.cached_model_files(hub.MODEL_REPO) is not None
+    assert asked == [(hub.MODEL_REPO, n, hub.MODEL_REVISION) for n in hub.MODEL_FILES]
+    asked.clear()
+    hub.cached_model_files("other/model")
+    assert {r for _, _, r in asked} == {None}  # another repository: its main branch, as before
+
+
+def test_model_problem_compares_every_file_with_its_pinned_hash(tmp_path):
+    files = {n: tmp_path / n for n in hub.MODEL_FILES}
+    good = dict(hub.MODEL_SHA256)
+    assert hub.model_problem(hub.MODEL_REPO, files, sha256=lambda p: good[p.name]) is None
+    bad = {**good, "model.safetensors": "0" * 64}
+    problem = hub.model_problem(hub.MODEL_REPO, files, sha256=lambda p: bad[p.name])
+    assert problem and "model.safetensors" in problem and "expected 05e01c7f" in problem
+    assert hub.model_problem("other/model", files, sha256=lambda p: "0" * 64) is None
+
+
+def test_download_asks_for_the_pinned_revision_and_rejects_a_wrong_file(monkeypatch, tmp_path):
+    import huggingface_hub
+
+    snapshot = tmp_path / "snapshots" / hub.MODEL_REVISION
+    blobs = tmp_path / "blobs"
+    snapshot.mkdir(parents=True)
+    blobs.mkdir()
+    for name in hub.MODEL_FILES:
+        (blobs / name).write_text("not the model")
+        (snapshot / name).symlink_to(blobs / name)
+    asked = []
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download",
+                        lambda repo, name, revision=None, **kw: asked.append(revision) or str(snapshot / name))
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
+                        lambda repo, name, revision=None: str(snapshot / name))
+    with pytest.raises(hub.ModelIntegrityError, match="does not match the pinned one"):
+        hub.download_model(hub.MODEL_REPO)
+    assert asked == [hub.MODEL_REVISION] * len(hub.MODEL_FILES)
+    # the wrong files are gone from the cache, links and blobs, so the next setup downloads them again
+    assert not any(p.exists() or p.is_symlink() for p in [*snapshot.iterdir(), *blobs.iterdir()])

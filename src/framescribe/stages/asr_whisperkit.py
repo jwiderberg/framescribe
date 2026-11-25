@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import pty
 import re
@@ -20,6 +21,7 @@ from ..ffmpeg import wav_seconds
 from ..fmt import timestamp
 from ..models import AsrArtifact, IngestArtifact, Word
 from ..proc import child_process
+from ..safeio import atomic_write_text, open_binary_log, remove_tree
 from ..words import (
     EPSILON,
     PAST_END_SECONDS,
@@ -62,6 +64,19 @@ def parse_report(report: dict, audio_seconds: float) -> tuple[list[Word], list[W
     window keeps its true timings. A restart may only drop words of the window just before it, and may not start
     before that window does; anything reaching further back raises, as does disorder inside one segment.
     """
+    try:
+        return _parse_report(report, audio_seconds)
+    except (KeyError, TypeError, ValueError, OverflowError) as e:  # ValueError includes pydantic's ValidationError
+        raise StageError(f"the WhisperKit report cannot be read: {type(e).__name__}: {str(e)[:200]}") from None
+
+
+def _seconds(value) -> float:
+    """A word time from the report; a start a hair before 0 (the tolerance of words.finalize_words) is 0."""
+    t = float(value)
+    return 0.0 if -EPSILON <= t < 0 else t
+
+
+def _parse_report(report: dict, audio_seconds: float) -> tuple[list[Word], list[Word], list[Word]]:
     words: list[Word] = []
     seeks: list[int | None] = []  # the window each word came from
     dropped: list[Word] = []
@@ -69,7 +84,7 @@ def parse_report(report: dict, audio_seconds: float) -> tuple[list[Word], list[W
         if "words" not in seg:
             raise StageError("WhisperKit report has no word timings; was --word-timestamps passed?")
         seg_words = [
-            Word(text=w["word"].strip(), start=float(w["start"]), end=float(w["end"]), conf=w.get("probability"))
+            Word(text=w["word"].strip(), start=_seconds(w["start"]), end=_seconds(w["end"]), conf=w.get("probability"))
             for w in seg["words"]
             if w["word"].strip() and not (w["word"].strip().startswith("<|") and w["word"].strip().endswith("|>"))
         ]
@@ -151,18 +166,31 @@ def run(ctx: Context) -> AsrArtifact:
     report_file = report_dir / f"{wav.stem}.json"
     inputs_file = report_dir / INPUTS_FILE
     inputs = report_inputs(cfg, wav)
-    retained = json.loads(inputs_file.read_text()) if inputs_file.is_file() and report_file.is_file() else None
+    try:
+        retained = json.loads(inputs_file.read_text()) if inputs_file.is_file() and report_file.is_file() else None
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        retained = None
+    if not isinstance(retained, dict):
+        retained = None
     if retained is not None and not ctx.forced and {k: retained.get(k) for k in inputs} == inputs:
         # The CLI already transcribed this audio with these options (it takes minutes); only parsing changed.
-        wall = float(retained["wall_seconds"])
+        try:
+            wall = float(retained.get("wall_seconds") or 0.0)
+        except (TypeError, ValueError):
+            wall = 0.0
+        if not math.isfinite(wall) or wall <= 0:
+            wall = 1e-3  # what the CLI took is not known; only the realtime figure in the summary depends on it
         ctx.log(f"re-parsing the report whisperkit-cli wrote for this audio and these options ({report_file}); "
                 f"the CLI is not run again (use --force {NAME} to run it)")
     else:
         wall = _transcribe(ctx, cfg, wav, report_dir, audio_seconds)
         if not report_file.is_file():
             raise StageError(f"whisperkit-cli wrote no report {report_file}; see {ctx.log_path}")
-        inputs_file.write_text(json.dumps({**inputs, "wall_seconds": wall}, indent=1) + "\n")
-    report = json.loads(report_file.read_text())  # the raw report stays in work/whisperkit-report/
+        atomic_write_text(inputs_file, json.dumps({**inputs, "wall_seconds": wall}, indent=1) + "\n")
+    try:
+        report = json.loads(report_file.read_text())  # the raw report stays in work/whisperkit-report/
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise StageError(f"whisperkit-cli wrote a report that is not JSON ({report_file}): {e}") from None
     words, dropped, past_end = parse_report(report, audio_seconds)
     if dropped:
         ctx.log(
@@ -187,7 +215,7 @@ def run(ctx: Context) -> AsrArtifact:
 def _transcribe(ctx: Context, cfg: Config, wav: Path, report_dir: Path, audio_seconds: float) -> float:
     """Run whisperkit-cli into a fresh `report_dir`; its wall time in seconds. A failing CLI raises."""
     assert cfg.whisperkit_cli and cfg.whisperkit_model
-    shutil.rmtree(report_dir, ignore_errors=True)
+    remove_tree(report_dir, ctx.run_dir)  # only a real folder inside the run folder; a link there is removed itself
     report_dir.mkdir(parents=True)
     cmd = [cfg.whisperkit_cli, "transcribe", "--audio-path", str(wav), "--model-path", cfg.whisperkit_model,
            "--language", cfg.language, *CLI_FLAGS, "--report-path", str(report_dir)]
@@ -196,7 +224,7 @@ def _transcribe(ctx: Context, cfg: Config, wav: Path, report_dir: Path, audio_se
     # --verbose is what makes the CLI print its progress bar; a pseudo-terminal makes it flush as it goes.
     master, slave = pty.openpty()
     try:
-        with ctx.log_path.open("wb") as log, child_process(
+        with open_binary_log(ctx.log_path) as log, child_process(
             cmd, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave, start_new_session=True
         ) as proc:
             os.close(slave)

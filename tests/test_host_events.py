@@ -132,6 +132,7 @@ def machine(monkeypatch, tmp_path):
     state = {"model": files}
     monkeypatch.setattr(doctor, "_machine", lambda: ("Darwin", "arm64"))
     monkeypatch.setattr(doctor, "_model_files", lambda repo: state["model"])
+    monkeypatch.setattr(doctor, "_model_hash_problem", lambda repo, files: None)  # the files match the pinned hashes
     monkeypatch.setattr(doctor, "_hf_cache_dir", lambda: tmp_path / "hub")
     monkeypatch.setattr(hub, "cache_dir", lambda: Path("/cache"))
     monkeypatch.setattr(hub, "free_gb", lambda path: 50.0)

@@ -4,18 +4,30 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+import os
+import re
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TypeVar
 
 from pydantic import ValidationError
 
 from .models import Artifact
+from .safeio import atomic_write_text
 
 EDGE_BYTES = 4 * 1024 * 1024
 VOLATILE_FIELDS = frozenset({"wall_seconds", "pass_seconds"})  # measurements that differ between runs of identical work
 
 A = TypeVar("A", bound=Artifact)
+
+# The side files a stage may record next to its artifact, relative to work/: the extracted audio, the report stage's
+# three files in the run folder, and key frames. A cached record naming anything else is not trusted (a cache miss).
+_SIDE_FILE = re.compile(r"audio\.wav|\.\./(report\.md|timeline\.json|ANALYSIS_PROMPT\.md)"
+                        r"|\.\./frames/s\d{4,}_t\d{2,}-\d{2}-\d{2}\.jpg")
+
+
+def allowed_side_file(name: object) -> bool:
+    return isinstance(name, str) and _SIDE_FILE.fullmatch(name) is not None
 
 
 def sha256_edges(path: Path) -> str:
@@ -69,8 +81,9 @@ class ArtifactStore:
     """`work/<file>` holds the artifact JSON; `work/<file>.key` holds the key it was computed with and the
     sizes of the stage's other output files, so a truncated or replaced side file reads as a miss."""
 
-    def __init__(self, work_dir: Path) -> None:
+    def __init__(self, work_dir: Path, log: Callable[[str], None] = lambda message: None) -> None:
         self.work_dir = work_dir
+        self.log = log  # why a cached artifact was not trusted
 
     def _key_path(self, filename: str) -> Path:
         return self.work_dir / (filename + ".key")
@@ -83,10 +96,23 @@ class ArtifactStore:
             if record["key"] != key:
                 return None
             for name, size in record["files"].items():
-                if (self.work_dir / name).stat().st_size != size:
+                if not allowed_side_file(name):
+                    self.log(f"cached {filename} names an unexpected file {name!r}; computing it again")
                     return None
-            return model.model_validate_json((self.work_dir / filename).read_text())
-        except (FileNotFoundError, ValidationError, json.JSONDecodeError, KeyError, TypeError):
+                side = self.work_dir / name
+                if os.path.islink(side) or side.stat().st_size != size:
+                    return None
+            artifact_path = self.work_dir / filename
+            if os.path.islink(artifact_path):
+                self.log(f"cached {filename} is a symbolic link; computing it again")
+                return None
+            return model.model_validate_json(artifact_path.read_text())
+        except ValidationError as e:
+            self.log(f"cached {filename} does not validate ({e.error_count()} error(s), first: "
+                     f"{e.errors()[0]['msg'] if e.errors() else '?'}); computing it again")
+            return None
+        except (FileNotFoundError, NotADirectoryError, json.JSONDecodeError, KeyError, TypeError, AttributeError,
+                UnicodeDecodeError):
             return None
 
     def digest(self, filename: str) -> str:
@@ -125,15 +151,15 @@ def write_if_changed(path: Path, text: str) -> bool:
     """Write `text` to `path` atomically unless the file already holds exactly that; True when it was written.
     A run that changes nothing leaves its output files (and their modification times) alone."""
     try:
-        if path.read_text() == text:
+        if not os.path.islink(path) and path.read_text() == text:
             return False
-    except (FileNotFoundError, UnicodeDecodeError):
+    except (FileNotFoundError, UnicodeDecodeError, IsADirectoryError):
         pass
     _atomic_write(path, text)
     return True
 
 
 def _atomic_write(path: Path, text: str) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text)
-    tmp.replace(path)
+    """A new temporary file next to `path`, renamed over it: a link at `path` (or at any predictable temporary name)
+    is replaced, never written through (safeio.atomic_write_text)."""
+    atomic_write_text(path, text)

@@ -334,7 +334,7 @@ class TestMarkdown:
         assert h2[:3] == ["How to read this document", "On-screen vocabulary", "Steps"]
         assert h2[-1] == "Coverage and caveats" and sum(x.startswith("Step ") for x in h2) == len(tl.steps)
         assert md.count("![Step ") == len(tl.steps)
-        assert re.search(r"!\[Step 1 main frame, state s\d{4} at \d\d:\d\d:\d\d\]\(frames/s\d{4}\.jpg\)", md)
+        assert re.search(r"!\[Step 1 main frame, state s\d{4} at \d\d:\d\d:\d\d\]\(frames/s\d{4}_t00-00-00\.jpg\)", md)
         assert not re.search(r"</?[a-z]+[ >]", md)
         assert f"framescribe {__version__}" in md
 
@@ -424,7 +424,9 @@ class TestMarkdown:
         v = visual([vstate(1, 0, 40, kind="initial"), vstate(2, 40, 50)])
         o = ocr([ostate(1, [line("<script>alert(1)</script>", 10, 10, h=30), line("a | b", 10, 200)]), ostate(2)])
         md = render_report(build(v, transcript([segment(0, 1, 2)]), o), v, o, transcript([segment(0, 1, 2)]), __version__)
-        assert "\\<script>" in md and not re.search(r"(?<!\\)<", md)
+        # entities now, not a backslash: no < is left anywhere but in the How-to-read note's code span `<`
+        assert "&lt;script&gt;alert\\(1\\)&lt;/script&gt;" in md and md.replace("`<`", "").count("<") == 0
+        assert "a \\| b" in md
 
     def test_group_rows_joins_lines_on_the_same_row_left_to_right(self):
         rows = group_rows([line("right", 300, 100, h=12), line("left", 10, 102, h=12), line("below", 10, 130, h=12),
@@ -455,10 +457,10 @@ class TestMarkdown:
         t = transcript([segment(0, 1, 5, "welcome"), segment(1, 12, 16, "now click this button")])
         make_frames(tmp_path, visual(states))
         md = render_report(build(visual(states), t, o), visual(states), o, t, __version__)
-        assert "**SCREEN [00:00:10]** scrolled down about 100 px ([s0002](frames/s0002.jpg))" in md
+        assert "**SCREEN [00:00:10]** scrolled down about 100 px ([s0002](frames/s0002_t00-00-00.jpg))" in md
         # a collapsed run of minor changes links each of its frames
         assert ("**SCREEN [00:00:20–00:00:25]** 1 small update without new text (animation or counters): "
-                "[s0003](frames/s0003.jpg)") in md
+                "[s0003](frames/s0003_t00-00-00.jpg)") in md
         assert md.index("**SAID [00:00:12]** now click this button") < md.index('**POINTER [00:00:14]** pointer near "Save"')
         assert md.count("**POINTER") == 1
 

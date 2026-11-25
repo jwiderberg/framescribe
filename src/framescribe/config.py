@@ -19,7 +19,7 @@ class Config:
     transcript: Path | None = None
     content_rect: tuple[int, int, int, int] | None = None
     layout_samples: int = 40
-    parakeet_model: str = "mlx-community/parakeet-tdt-0.6b-v3"
+    parakeet_model: str = "mlx-community/parakeet-tdt-0.6b-v3"  # hub.MODEL_REPO, pinned to hub.MODEL_REVISION
     chunk_seconds: float = 30.0  # target chunk length for parakeet (measured, docs/MEASUREMENTS.md)
     cut_search_seconds: float = 5.0
     chunk_max_seconds: float = 40.0

@@ -6,11 +6,15 @@ import re
 
 from .models import Caption
 
-_TIME = r"(?:(\d+):)?(\d{1,2}):(\d{2})[,.](\d{1,3})"
+_TIME = r"(?:(\d{1,6}):)?(\d{1,2}):(\d{2})[,.](\d{1,3})"  # at most 6 digits of hours: no huge numbers
 _CUE_LINE = re.compile(rf"^\s*{_TIME}\s*-->\s*{_TIME}")
 _SPEAKER_LINE = re.compile(r"^\(([^()]+)\)$")
-_VOICE_TAG = re.compile(r"<v(?:\.[^\s>]*)?\s+([^>]+)>")
-_ANY_TAG = re.compile(r"</?[^>]+>")
+# Linear: the name stops at the next "<" or ">", so a line of many "<v " does not make every match attempt scan to
+# the end of the line (the old [^>]+ took time quadratic in the line length).
+_VOICE_TAG = re.compile(r"<v(?:\.[^\s<>]*)?[ \t]+([^<>]+)>")
+_ANY_TAG = re.compile(r"</?[^<>]+>")
+MAX_LINE_CHARS = 2000  # a caption line longer than this is cut: no cue is that long, and every regex stays cheap
+MAX_TIMING_CHARS = 200  # a longer timing line is not one (WebVTT cue settings included)
 
 
 def _seconds(h: str | None, m: str, s: str, ms: str) -> float:
@@ -18,7 +22,8 @@ def _seconds(h: str | None, m: str, s: str, ms: str) -> float:
 
 
 def parse_captions(text: str) -> list[Caption]:
-    """Parse SRT or WebVTT text. Raises ValueError when a block has times but no parsable cue."""
+    """Parse SRT or WebVTT text. Raises ValueError when a block has times but no parsable cue (pydantic's
+    ValidationError, a ValueError, for times out of range)."""
     captions: list[Caption] = []
     blocks = re.split(r"\n\s*\n", text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n"))
     for block in blocks:
@@ -26,9 +31,10 @@ def parse_captions(text: str) -> list[Caption]:
         idx = next((i for i, ln in enumerate(lines) if "-->" in ln), None)
         if idx is None:
             continue  # WEBVTT header, NOTE and STYLE blocks
-        m = _CUE_LINE.match(lines[idx])
+        lines = [ln if i == idx else ln[:MAX_LINE_CHARS] for i, ln in enumerate(lines)]
+        m = _CUE_LINE.match(lines[idx]) if len(lines[idx]) <= MAX_TIMING_CHARS else None
         if not m:
-            raise ValueError(f"unparsable cue timing line: {lines[idx]!r}")
+            raise ValueError(f"unparsable cue timing line: {lines[idx][:80]!r}")
         g = m.groups()
         start, end = _seconds(*g[0:4]), _seconds(*g[4:8])
         speaker, body = _split_speaker(lines[idx + 1 :])

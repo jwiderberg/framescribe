@@ -2,15 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel as _PydanticModel
+from pydantic import ConfigDict, Field, field_validator
 
 SCHEMA_VERSION = 1
+MAX_SECONDS = 1e7  # no time in any artifact is this large (115 days); a larger one is an error, not an overflow later
+
+# A time in seconds from the start of the video: finite, not negative.
+Seconds = Annotated[float, Field(ge=0, le=MAX_SECONDS)]
+
+KEYFRAME_PATH = r"^frames/s\d{4,}_t\d{2,}-\d{2}-\d{2}\.jpg$"  # what the visual stage writes (visual.keyframe_name)
+AUDIO_WAV = "work/audio.wav"  # what the ingest stage writes
+
+
+class BaseModel(_PydanticModel):
+    """Every model: NaN and infinities are invalid numbers, wherever they come from (a cached artifact, an imported
+    transcript, a backend)."""
+
+    model_config = ConfigDict(allow_inf_nan=False)
 
 
 class Artifact(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     schema_version: int = SCHEMA_VERSION
 
@@ -33,8 +48,8 @@ class Rect(BaseModel):
 
 
 class Caption(BaseModel):
-    start: float
-    end: float
+    start: Seconds
+    end: Seconds
     speaker: str | None = None
     text: str
 
@@ -64,15 +79,19 @@ class Layout(BaseModel):
 
 class IngestArtifact(Artifact):
     source: str
-    duration: float
+    duration: Seconds
     video: VideoFacts
     audio: AudioFacts | None
-    audio_wav: str | None = Field(description="16 kHz mono PCM, path relative to the run directory; None without audio")
+    audio_wav: Literal["work/audio.wav"] | None = Field(
+        description="16 kHz mono PCM, path relative to the run directory (always work/audio.wav); None without audio")
     embedded_captions: list[Caption]
     layout: Layout
 
 
 class Word(BaseModel):
+    """A backend's word. Its times are finite but may be a little off (cross-check sources are sloppy); the words of
+    a transcript (TranscriptWord) are not negative."""
+
     text: str
     start: float
     end: float
@@ -92,7 +111,7 @@ class Segment(BaseModel):
 class Cut(BaseModel):
     """Where the audio was cut into chunks for decoding."""
 
-    time: float
+    time: Seconds
     kind: Literal["pause", "no_pause"] = Field(description="no_pause: no quiet run was found, so the cut is at a word boundary")
     level_db: float = Field(description="audio level at the cut, dBFS over 30 ms")
     pause_seconds: float = Field(description="length of the quiet run the cut is centred in; for no_pause, the gap between the words")
@@ -113,7 +132,7 @@ class AsrArtifact(Artifact):
     language: str | None
     words: list[Word]
     segments: list[Segment]
-    audio_seconds: float
+    audio_seconds: Seconds
     wall_seconds: float
     cuts: list[Cut] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -129,6 +148,8 @@ class AsrArtifact(Artifact):
 class TranscriptWord(Word):
     """A word of the final transcript. `filled`: not heard by the primary backend but by `source`, and inserted."""
 
+    start: Seconds
+    end: Seconds
     source: str | None = Field(default=None, description="filled words: the source whose text was used")
     filled: bool = False
     confirmed: bool | None = Field(default=None, description="filled words: True when two or more sources have it")
@@ -197,8 +218,8 @@ SOURCE_NAMES = {"parakeet-pass2": "the second parakeet pass", "whisperkit": "Whi
 
 class TranscriptSegment(BaseModel):
     id: int
-    start: float
-    end: float
+    start: Seconds
+    end: Seconds
     text: str = Field(description="filled words are marked: [+ confirmed +], [? unconfirmed ?]")
     speaker: str | None = None
     words: list[TranscriptWord] = Field(default_factory=list)
@@ -260,7 +281,7 @@ class Change(BaseModel):
 class CursorSample(BaseModel):
     """Pointer position in content-crop pixels (centre of the pointer's footprint) at time t."""
 
-    t: float
+    t: Seconds
     x: float
     y: float
     confidence: float
@@ -268,10 +289,10 @@ class CursorSample(BaseModel):
 
 class VisualState(BaseModel):
     id: int = Field(description="1-based, in time order; matches the key frame file name")
-    start: float
-    end: float
-    keyframe_time: float
-    keyframe_path: str = Field(description="relative to the run directory")
+    start: Seconds
+    end: Seconds
+    keyframe_time: Seconds
+    keyframe_path: str = Field(pattern=KEYFRAME_PATH, description="relative to the run directory: frames/sNNNN_tHH-MM-SS.jpg")
     settled: bool = Field(description="False when the key frame is the best available but the picture was still changing")
     change: Change
     cursor: list[CursorSample] = Field(description="pointer positions seen while this state was current, in time order")
@@ -290,7 +311,7 @@ class CapInfo(BaseModel):
 
 class VisualArtifact(Artifact):
     fps_sampled: float
-    duration: float
+    duration: Seconds
     content_rect: Rect = Field(description="the crop of the video frame that was analysed; all coordinates are inside it")
     states: list[VisualState] = Field(description="contiguous: the first starts at 0, each ends where the next starts, the last at duration")
     cap: CapInfo
@@ -315,7 +336,7 @@ class OcrScroll(BaseModel):
 
 class OcrState(BaseModel):
     state_id: int
-    keyframe_path: str
+    keyframe_path: str = Field(pattern=KEYFRAME_PATH)
     content_hash: str = Field(description="sha256 of the key frame file")
     duplicate_of: int | None = Field(description="id of an earlier state with the same key frame, whose result this reuses")
     diff_against: int | None = Field(description="id of the previous state; None for the first, where everything is added")
@@ -343,8 +364,8 @@ class TimelineEvent(BaseModel):
     """One entry of a step's chronological timeline. Which fields are set depends on `type`."""
 
     type: TimelineEventType
-    time: float
-    end: float | None = Field(default=None, description="said: the end of the last segment; screen events that collapse a "
+    time: Seconds
+    end: Seconds | None = Field(default=None, description="said: the end of the last segment; screen events that collapse a "
                               "run of minor changes without new text: the run's end (None for every other screen event)")
     text: str | None = Field(default=None, description="said: verbatim transcript text, filled-in words marked [+ +] or "
                              "[? ?]; pointer: the nearest on-screen line")
@@ -363,8 +384,8 @@ class TimelineEvent(BaseModel):
 
 class TimelineStep(BaseModel):
     id: int
-    start: float
-    end: float
+    start: Seconds
+    end: Seconds
     title: str
     title_is_fallback: bool = Field(description="True when no usable on-screen line was found and the title is 'Step N'")
     main_state_id: int
@@ -378,9 +399,10 @@ class TimelineStep(BaseModel):
 class TimelineArtifact(Artifact):
     """The merged evidence of the report: steps, each with its chronological events. `report.md` is rendered from it."""
 
-    schema_version: int = 2
-    source: str
-    duration: float
+    schema_version: int = 3  # 3: `source` is the file name only
+    source: str = Field(description="the source video's file name, without its folder (timeline.json is shared; "
+                                    "run.json keeps the full path)")
+    duration: Seconds
     asr_backend: str
     step_min_seconds: float
     step_max_seconds: float

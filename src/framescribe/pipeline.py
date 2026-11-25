@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 import time
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
@@ -16,10 +18,42 @@ from .models import AsrArtifact, Completeness, IngestArtifact, RunRecord, StageR
 from .errors import GateError
 from .proc import Terminated
 from .render import write_transcript_md
+from .safeio import atomic_write_text, check_run_folders
 from .stages import asr, asr_parakeet, asr_whisperkit, ingest, ocr, report, visual
 from .stages.base import Context, Stage, StageError
 
 FORCE_ALL = "all"
+SAFE_RUN_NAME = "video"  # the run folder's name when the video's own name cannot be one
+_UNSAFE_NAME = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029/]")
+
+
+def run_folder_name(source: Path) -> str:
+    """The video's name without its extension (`Path.stem`), or SAFE_RUN_NAME when that is empty, "." or "..", or holds
+    a path separator, a NUL or another control character (a video called "...mov" has the stem "..")."""
+    stem = source.stem
+    if stem in ("", ".", "..") or _UNSAFE_NAME.search(stem) or (os.altsep and os.altsep in stem):
+        return SAFE_RUN_NAME
+    return stem
+
+
+def resolve_run_dir(source: Path, out: Path, run_dir: Path | None) -> Path:
+    """The run folder as an absolute path (no relative path ever reaches ffmpeg, where `md5:x` would be a protocol).
+    OUT/<name>/ must be a direct child of OUT once both are resolved; an explicit --run-dir is the caller's choice,
+    but it must not be a symbolic link either."""
+    if run_dir is not None:
+        if str(run_dir).strip() == "":
+            raise StageError("--run-dir is empty")
+        chosen = Path(os.path.abspath(run_dir))
+        if os.path.islink(chosen):
+            raise StageError(f"refusing to use the run folder {chosen}: it is a symbolic link")
+        return chosen
+    root = Path(os.path.abspath(out))
+    chosen = root / run_folder_name(source)
+    if Path(os.path.realpath(chosen)).parent != Path(os.path.realpath(root)):
+        raise StageError(f"the run folder {chosen} would not be inside the output folder {root}")
+    return chosen
+
+
 STAGE_ORDER = ["ingest", asr_parakeet.NAME, asr_whisperkit.NAME, asr.NAME, visual.NAME, ocr.NAME, report.NAME]
 
 
@@ -94,13 +128,19 @@ def run_pipeline(
     Events are dicts with "event" (run_start, stage_start, stage_progress, log, stage_end, run_end)
     and "t", seconds since the run started. Returns the run record and the run directory.
     """
-    if run_dir is None:
-        run_dir = out / source.stem
     t_start = time.perf_counter()
 
     def emit(event: str, **fields: Any) -> None:
         sink({"event": event, "t": round(time.perf_counter() - t_start, 3), **fields})
 
+    try:
+        run_dir = resolve_run_dir(source, out, run_dir)
+    except StageError as e:
+        shown = str(run_dir if run_dir is not None else out)
+        emit("run_start", source=str(source), duration=None, run_dir=shown, stages=[])
+        emit("run_end", status="failed", run_dir=shown, wall_seconds=round(time.perf_counter() - t_start, 3),
+             error=str(e), error_kind=None, completeness=None, warnings=[])
+        raise
     ctx = Context(config=cfg, source=source.resolve(), run_dir=run_dir, emit=emit)
     fingerprint: str | None = None
     started = False
@@ -116,8 +156,10 @@ def run_pipeline(
         plan = build_plan(cfg)
         skipped_records = plan.skipped
         forced = forced_stages(plan, force)
+        check_run_folders(run_dir)  # before anything is written: no symbolic link, no folder of another user
         ctx.work_dir.mkdir(parents=True, exist_ok=True)
-        store = ArtifactStore(ctx.work_dir)
+        check_run_folders(run_dir)
+        store = ArtifactStore(ctx.work_dir, log=ctx.log)
         fingerprint = source_fingerprint(source)
         skipped = {s.stage: s.reason for s in plan.skipped}
         order = sorted([s.name for s in plan.stages] + list(skipped), key=STAGE_ORDER.index)
@@ -241,5 +283,5 @@ def _write_run_json(run_dir: Path, ctx: Context, fingerprint: str, cfg: Config, 
         completeness=completeness,
     )
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "run.json").write_text(record.model_dump_json(indent=1))
+    atomic_write_text(run_dir / "run.json", record.model_dump_json(indent=1))
     return record

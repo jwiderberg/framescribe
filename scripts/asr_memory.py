@@ -32,7 +32,7 @@ from parakeet_mlx import from_pretrained
 
 from framescribe.chunking import Levels, read_wav
 from framescribe.config import Config
-from framescribe.doctor import require_cached_model
+from framescribe.doctor import model_load_path, require_cached_model
 from framescribe.stages import asr_parakeet
 
 MB = 1024 * 1024
@@ -112,7 +112,7 @@ def main() -> int:
 
     require_cached_model(cfg.parakeet_model)  # offline, and fails with "run framescribe setup" when the model is not cached
     t_all = time.perf_counter()
-    model = from_pretrained(cfg.parakeet_model)
+    model = from_pretrained(model_load_path(cfg.parakeet_model))  # the pinned snapshot
     after_load = {"active_mb": round(mx.get_active_memory() / MB, 1), "cache_mb": round(mx.get_cache_memory() / MB, 1),
                   "rss_mb": round(rss_mb(), 1)}
     mx.reset_peak_memory()

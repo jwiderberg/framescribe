@@ -27,7 +27,7 @@ FRAME_W, FRAME_H = 960, 516
 def vstate(id: int, start: float, end: float, kind: str = "partial", conf: float = 0.9, frac: float = 0.1,
            settled: bool = True, cursor: list[CursorSample] | None = None, dy: int | None = None) -> VisualState:
     return VisualState(
-        id=id, start=start, end=end, keyframe_time=(start + end) / 2, keyframe_path=f"frames/s{id:04d}.jpg", settled=settled,
+        id=id, start=start, end=end, keyframe_time=(start + end) / 2, keyframe_path=f"frames/s{id:04d}_t00-00-00.jpg", settled=settled,
         change=Change(kind=kind, kind_confidence=conf, changed_fraction=frac,  # type: ignore[arg-type]
                       changed_rect=None if kind == "initial" else Rect(x=0, y=0, w=FRAME_W, h=FRAME_H), scroll_dy=dy),
         cursor=cursor or [],
@@ -61,7 +61,7 @@ def ostate(state_id: int, lines: list[OcrLine] | None = None, added: list[OcrLin
            removed: list[OcrLine] | None = None, scroll: OcrScroll | None = None) -> OcrState:
     lines = lines or []
     return OcrState(
-        state_id=state_id, keyframe_path=f"frames/s{state_id:04d}.jpg", content_hash=f"h{state_id}", duplicate_of=None,
+        state_id=state_id, keyframe_path=f"frames/s{state_id:04d}_t00-00-00.jpg", content_hash=f"h{state_id}", duplicate_of=None,
         diff_against=state_id - 1 if state_id > 1 else None, lines=lines, added=lines if added is None else added,
         removed=removed or [], scroll=scroll,
     )

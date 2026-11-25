@@ -362,7 +362,8 @@ def run(ctx: Context) -> AsrArtifact:
     with mlx_memory_scope(cfg.mlx_cache_limit_mb, ctx.log, memory):
         total = 2 * audio_seconds  # two passes over the audio
         ctx.progress(0, total, "audio_s", "loading model")
-        model = from_pretrained(cfg.parakeet_model)
+        # the pinned snapshot's folder: given the repository name, parakeet-mlx would read the branch main
+        model = from_pretrained(doctor.model_load_path(cfg.parakeet_model))
         levels = Levels(samples, rate)
         decoding = Decoding()
         planned = plan_cuts(levels, audio_seconds, cfg.chunk_seconds, cfg.cut_search_seconds, cfg.chunk_max_seconds)

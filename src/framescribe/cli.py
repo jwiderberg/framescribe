@@ -11,6 +11,7 @@ import typer
 
 from . import __version__, doctor as doctor_checks, hub
 from .config import ENV_WHISPERKIT_CLI, ENV_WHISPERKIT_MODEL, AsrMode, Config
+from .fmt import terminal_text
 from .pipeline import FORCE_ALL, run_pipeline
 from .proc import Terminated, install_termination_handlers
 from .stages.base import StageError
@@ -43,7 +44,7 @@ def main(
 
 
 def _fail(message: str, code: int = 2) -> typer.Exit:
-    typer.echo(f"error: {message}", err=True)
+    typer.echo(f"error: {terminal_text(message, keep_newlines=True)}", err=True)
     return typer.Exit(code)
 
 
@@ -96,7 +97,7 @@ def setup(
     problem = doctor_checks.check_platform()
     if problem.blocking:
         raise fail(f"{problem.detail}. Fix: {problem.fix}")
-    present = doctor_checks.check_model(repo)
+    present = doctor_checks.check_model(repo, verify=True)
     if present.status == doctor_checks.OK:
         say(f"speech model present: {present.detail}")
         emit("setup_end", status="present", detail=present.detail, error=None)
@@ -116,7 +117,9 @@ def setup(
         raise fail(f"only {free:.1f} GB free where the model cache is; at least {hub.MIN_FREE_GB:g} GB are needed. Free some space and run `framescribe setup` again.")
     if hub.offline_requested():
         raise fail("HF_HUB_OFFLINE is set, which forbids the download. Unset it and run `framescribe setup` again.")
-    say("Downloading (this is the only network access framescribe makes) ...")
+    for removed in hub.discard_mismatched(repo):
+        say(f"removed a cached model file that is not the pinned one: {removed}")
+    say(f"Downloading revision {hub.revision(repo) or 'main'} (this is the only network access framescribe makes) ...")
     try:
         if as_json:
             hub.download_model(repo, on_progress=lambda name, done, total: emit("setup_progress", file=name, done=done, total=total))
@@ -127,9 +130,9 @@ def setup(
         raise _fail("interrupted; run `framescribe setup` again to resume", 130) from None
     except Exception as e:  # network errors of every kind, interrupted downloads, full disks
         raise fail(f"the download failed: {type(e).__name__}: {e}. Run `framescribe setup` again to resume.") from None
-    done = doctor_checks.check_model(repo)
+    done = doctor_checks.check_model(repo, verify=True)
     if done.status != doctor_checks.OK:
-        raise fail("the download finished but the model is not in the cache")
+        raise fail(f"the download finished but the model is not usable: {done.detail}")
     say(f"speech model ready: {done.detail}")
     emit("setup_end", status="ok", detail=done.detail, error=None)
 
@@ -189,7 +192,7 @@ def run(
     try:
         run_pipeline(video, out, cfg, force or [], sink=make_renderer(progress), run_dir=run_dir)
     except StageError as e:
-        typer.echo(f"error: {e}", err=True)
+        typer.echo(f"error: {terminal_text(e, keep_newlines=True)}", err=True)
         raise typer.Exit(2) from None
     except KeyboardInterrupt as e:
         terminated = isinstance(e, Terminated)

@@ -27,7 +27,10 @@ def run(ctx: Context) -> IngestArtifact:
     else:
         ctx.log("no audio stream: only a transcript supplied with --transcript can be used")
     ctx.progress(0, 1, "step", "reading embedded captions")
-    captions = parse_captions(extract_subtitles_srt(ctx.source)) if info.subtitle_streams else []
+    try:
+        captions = parse_captions(extract_subtitles_srt(ctx.source)) if info.subtitle_streams else []
+    except (ValueError, OverflowError) as e:  # a ValidationError too: times out of range
+        raise StageError(f"the video's embedded captions cannot be read: {str(e)[:300]}") from None
     layout = _layout(ctx, info)
     if layout.warning:
         ctx.log(layout.warning)
