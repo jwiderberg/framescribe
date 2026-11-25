@@ -253,8 +253,8 @@ struct StageRow: View {
                         HStack {
                             ProgressView(value: f)
                                 .accessibilityLabel("\(stage.name) progress")
-                                .accessibilityValue("\(Int(f * 100)) percent")
-                            Text("\(Int(f * 100))%").monospacedDigit().frame(width: 44, alignment: .trailing)
+                                .accessibilityValue("\(Checked.percent(f)) percent")
+                            Text("\(Checked.percent(f))%").monospacedDigit().frame(width: 44, alignment: .trailing)
                         }
                     } else {
                         ProgressView().progressViewStyle(.linear).accessibilityLabel("\(stage.name) progress")

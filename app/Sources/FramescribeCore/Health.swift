@@ -119,7 +119,7 @@ public struct SetupProgress: Sendable, Equatable {
     /// The download's size: the files' totals once known, else the announced size.
     public var totalBytes: Int64 {
         let known = bytes.values.reduce(0) { $0 + $1.total }
-        return max(known, Int64(sizeGB * 1e9))
+        return max(known, Checked.int64(sizeGB * 1e9) ?? 0)
     }
 
     public var fraction: Double? {

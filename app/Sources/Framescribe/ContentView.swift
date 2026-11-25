@@ -163,7 +163,7 @@ struct JobRow: View {
         case .waiting: return canStart ? "Waiting" : "Waiting for the checks"
         case .running:
             if job.stopRequested { return "Stopping…" }
-            if let s = job.progress.runningStage, let f = s.fraction { return "\(s.name) \(Int(f * 100))%" }
+            if let s = job.progress.runningStage, let f = s.fraction { return "\(s.name) \(Checked.percent(f))%" }
             return job.progress.runningStage?.name ?? "Starting…"
         case .done: return "Done"
         case .failed: return "Failed"

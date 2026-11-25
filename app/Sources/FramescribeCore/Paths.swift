@@ -27,9 +27,12 @@ public enum VideoFiles {
 
 /// Where results go: `<output folder>/<video name without extension>/` (Python's `Path.stem`: the last extension only),
 /// or `<stem> 2`, `<stem> 3`, … when that folder holds the run of another video of the same name
-/// (chooseRunDirectory). The app passes the folder it chose with `--run-dir`.
+/// (chooseRunDirectory). A name that cannot be a folder of its own (empty, "." or "..", or holding a slash or a
+/// control character: a video called "...mov" has the stem "..") is replaced by `video`, the rule framescribe itself
+/// applies (pipeline.run_folder_name). The app passes the folder it chose with `--run-dir`.
 public enum OutputLocation {
     public static let folderName = "framescribe"
+    public static let safeRunName = "video"
 
     /// ~/Documents/framescribe
     public static func defaultFolder(home: URL) -> URL {
@@ -44,8 +47,35 @@ public enum OutputLocation {
         return String(fileName[..<dot])
     }
 
+    /// The run folder's name: the stem, or `video` when the stem is empty, "." or "..", or holds a slash, a NUL or
+    /// another control character (C0, DEL, C1, or a Unicode line or paragraph separator).
+    public static func runFolderName(of fileName: String) -> String {
+        let s = stem(of: fileName)
+        if s.isEmpty || s == "." || s == ".." || s.contains("/") || s.unicodeScalars.contains(where: isControl) {
+            return safeRunName
+        }
+        return s
+    }
+
+    static func isControl(_ u: Unicode.Scalar) -> Bool {
+        u.value < 0x20 || (0x7F...0x9F).contains(u.value) || u.value == 0x2028 || u.value == 0x2029
+    }
+
     public static func runDirectory(video: URL, outputFolder: URL) -> URL {
-        outputFolder.appendingPathComponent(stem(of: video.lastPathComponent), isDirectory: true)
+        outputFolder.appendingPathComponent(runFolderName(of: video.lastPathComponent), isDirectory: true)
+    }
+
+    /// Whether `dir` is a usable run folder in `outputFolder`: not a symbolic link, and its parent, resolved, is the
+    /// resolved output folder.
+    public static func isRunDirectory(_ dir: URL, in outputFolder: URL,
+                                      canonical: (String) -> String = OutputLocation.canonicalPath) -> Bool {
+        if isSymbolicLink(dir.path) { return false }
+        return canonical(dir.deletingLastPathComponent().path) == canonical(outputFolder.path)
+    }
+
+    public static func isSymbolicLink(_ path: String) -> Bool {
+        var st = stat()
+        return lstat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFLNK
     }
 
     /// The folder for `video`'s results: `<stem>`, unless that folder already holds a run (its `run.json`) of a
@@ -55,11 +85,13 @@ public enum OutputLocation {
     public static func chooseRunDirectory(video: URL, outputFolder: URL,
                                           recordedSource: (URL) -> String? = OutputLocation.recordedSource(in:),
                                           canonical: (String) -> String = OutputLocation.canonicalPath) -> URL {
-        let base = stem(of: video.lastPathComponent)
+        let base = runFolderName(of: video.lastPathComponent)
         let mine = canonical(video.standardizedFileURL.path)
         var n = 1
         while true {
             let dir = outputFolder.appendingPathComponent(n == 1 ? base : "\(base) \(n)", isDirectory: true)
+            // a link there (to anywhere) is never a run folder: the next name is tried (framescribe refuses a link)
+            guard n > 10_000 || isRunDirectory(dir, in: outputFolder, canonical: canonical) else { n += 1; continue }
             guard let source = recordedSource(dir) else { return dir }
             if !source.isEmpty, canonical(source) == mine { return dir }
             n += 1

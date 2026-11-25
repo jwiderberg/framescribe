@@ -110,7 +110,7 @@ struct DownloadProgressView: View {
                     if let f = p.fraction {
                         ProgressView(value: f)
                             .accessibilityLabel("Speech model download")
-                            .accessibilityValue("\(Int(f * 100)) percent")
+                            .accessibilityValue("\(Checked.percent(f)) percent")
                     } else {
                         ProgressView().progressViewStyle(.linear).accessibilityLabel("Speech model download")
                     }
@@ -131,7 +131,7 @@ struct DownloadProgressView: View {
 
     private func bytesText(_ p: SetupProgress) -> String {
         let gb = { (b: Int64) in String(format: "%.2f GB", Double(b) / 1e9) }
-        let pct = p.fraction.map { " (\(Int($0 * 100))%)" } ?? ""
+        let pct = p.fraction.map { " (\(Checked.percent($0))%)" } ?? ""
         return "Downloading: \(gb(p.doneBytes)) of about \(gb(p.totalBytes))\(pct)"
     }
 }

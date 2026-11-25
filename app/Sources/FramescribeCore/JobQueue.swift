@@ -185,6 +185,12 @@ public final class JobQueue {
             return
         }
         var log: JobLogWriter?
+        if OutputLocation.isSymbolicLink(plan.runDirectory.path) {
+            job.failToStart("refusing to use the output folder \(plan.runDirectory.path): it is a symbolic link", at: now())
+            onFinished?(job)
+            pump()
+            return
+        }
         do {
             try FileManager.default.createDirectory(at: plan.runDirectory, withIntermediateDirectories: true)
             if writesAppLog {
@@ -240,15 +246,16 @@ public final class JobQueue {
     private func markSharedOutputs() {
         let active = jobs.filter { !$0.state.isFinished }
         for job in active {
-            let stem = OutputLocation.stem(of: job.name)
-            let other = active.first { $0 !== job && OutputLocation.stem(of: $0.name) == stem }
+            let stem = OutputLocation.runFolderName(of: job.name)
+            let other = active.first { $0 !== job && OutputLocation.runFolderName(of: $0.name) == stem }
             job.noteSharedOutput(with: other?.video.path)
         }
     }
 }
 
 /// The app's log of one job: the command, every stdout line (the events) and every stderr line. A later run of the
-/// same video appends to the same file after a dated separator line, so the earlier runs stay readable.
+/// same video appends to the same file after a dated separator line, so the earlier runs stay readable. The file is
+/// opened with O_NOFOLLOW: a symbolic link planted at its name is never written through (there is no log then).
 @MainActor
 final class JobLogWriter {
     static let separatorPrefix = "===== run started "
@@ -257,16 +264,17 @@ final class JobLogWriter {
     private var handle: FileHandle?
 
     init?(url: URL, command: CommandSpec, now: Date = Date()) {
-        let existed = FileManager.default.fileExists(atPath: url.path)
-        guard existed || FileManager.default.createFile(atPath: url.path, contents: nil),
-              let handle = try? FileHandle(forWritingTo: url)
-        else { return nil }
+        var st = stat()
+        let existed = lstat(url.path, &st) == 0
+        if existed && (st.st_mode & S_IFMT) != S_IFREG { return nil }  // a link, a folder: never written through
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0o644)
+        guard fd >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         self.url = url
         self.handle = handle
         let stamp = ISO8601DateFormatter().string(from: now)
         if existed {
-            _ = try? handle.seekToEnd()
-            write("")
+            write("")  // O_APPEND: every write goes to the end
         }
         write(Self.separatorPrefix + stamp + " =====")
         write("started: \(stamp)")

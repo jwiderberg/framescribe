@@ -236,9 +236,9 @@ public enum EventDecoder {
                 let cf = Fields(c, kind: kind)
                 completeness = CompletenessFigures(summary: cf.optionalString("summary") ?? "",
                                                    filledShare: cf.optionalDouble("filled_share"),
-                                                   filledWords: cf.optionalDouble("filled_words").map { Int($0) },
+                                                   filledWords: cf.optionalDouble("filled_words").flatMap(Checked.int),
                                                    warning: cf.optionalString("warning"),
-                                                   primaryWords: cf.optionalDouble("primary_words").map { Int($0) },
+                                                   primaryWords: cf.optionalDouble("primary_words").flatMap(Checked.int),
                                                    limit: cf.optionalDouble("limit"),
                                                    aboveLimit: cf.optionalBool("above_limit") ?? false)
             }
@@ -256,9 +256,9 @@ public enum EventDecoder {
                                                freeGB: f.optionalDouble("free_gb") ?? 0,
                                                files: f.optionalStrings("files") ?? []))
         case "setup_progress":
-            return .setupProgress(SetupProgressEvent(t: try f.double("t"), file: try f.string("file"),
-                                                     done: Int64(try f.double("done")),
-                                                     total: Int64(try f.double("total"))))
+            guard let done = Checked.int64(try f.double("done")) else { throw EventDecodeError.badValue(event: kind, field: "done") }
+            guard let total = Checked.int64(try f.double("total")) else { throw EventDecodeError.badValue(event: kind, field: "total") }
+            return .setupProgress(SetupProgressEvent(t: try f.double("t"), file: try f.string("file"), done: done, total: total))
         case "setup_end":
             return .setupEnd(SetupEndEvent(t: try f.double("t"), status: try f.string("status"),
                                            detail: f.optionalString("detail"), error: f.optionalString("error")))

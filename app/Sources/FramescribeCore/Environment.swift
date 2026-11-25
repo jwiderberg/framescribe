@@ -102,10 +102,11 @@ public enum LoginShell {
 public enum ChildEnvironment {
     /// Taken from the app's own environment.
     public static let passedThrough = ["HOME", "USER", "LOGNAME", "TMPDIR", "SHELL", "LANG", "LC_ALL", "LC_CTYPE"]
-    /// Taken from the login shell when set there (it wins over the app's own value): the Hugging Face cache location,
-    /// proxies for `setup`, and framescribe's own WhisperKit settings.
+    /// Taken from the login shell when set there (it wins over the app's own value): the Hugging Face cache location
+    /// and endpoint, proxies for `setup`, and framescribe's own WhisperKit settings. Not HF_TOKEN: the speech model is
+    /// public, so the child never needs the user's Hugging Face token.
     public static let fromLoginShell = [
-        "HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "XDG_CACHE_HOME", "HF_ENDPOINT", "HF_TOKEN",
+        "HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "XDG_CACHE_HOME", "HF_ENDPOINT",
         "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
         "FRAMESCRIBE_WHISPERKIT_CLI", "FRAMESCRIBE_WHISPERKIT_MODEL",
     ]

@@ -191,12 +191,12 @@ public struct RunProgress: Sendable, Equatable {
 public enum Clock {
     /// 83.4 -> "1:23", 3723 -> "1:02:03".
     public static func format(_ seconds: Double) -> String {
-        let s = max(0, Int(seconds.rounded(.down)))
+        let s = max(0, Checked.int(seconds.rounded(.down)) ?? 0)
         let h = s / 3600, m = (s % 3600) / 60, sec = s % 60
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
     }
 
     public static func number(_ value: Double) -> String {
-        value == value.rounded() && abs(value) < 1e15 ? String(Int(value)) : String(format: "%.1f", value)
+        value == value.rounded() && abs(value) < 1e15 ? String(Checked.int(value) ?? 0) : String(format: "%.1f", value)
     }
 }
