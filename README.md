@@ -12,7 +12,7 @@ Built for the use case of narrated recordings of someone using or testing softwa
 out/recording/
   report.md                the evidence report, links into frames/
   frames/                  one key frame (JPEG) per distinct screen state
-  timeline.json            the same evidence as data (steps and their events)
+  timeline.json            the same evidence as data (steps and their events, the video by file name)
   ANALYSIS_PROMPT.md       instructions for the LLM that writes the walkthrough from report.md
   transcript.md            the plain transcript with timestamps
   run.json                 status, wall time and cache key per stage, plus the configuration
@@ -51,6 +51,7 @@ out/recording/
 - A Mac with Apple Silicon (M1 or later). The speech model runs on MLX and the text recognition uses Apple Vision, so Intel Macs and other systems are not supported.
 - macOS 15 (Sequoia) or later for the Mac app. The command line tool does not declare a minimum macOS version. Which older versions it works on is unchecked.
 - `ffmpeg` and `ffprobe` (`brew install ffmpeg`).
+- Videos in MP4, MOV, M4V, MKV or WebM files, up to 12 hours long and up to 8192 pixels on a side. Other containers (AVI, MPEG-TS and so on) are refused with a message. Convert them first, for example with `ffmpeg -i in.avi -c copy out.mkv`.
 - [uv](https://docs.astral.sh/uv/), for the command line install and for building the app. It installs Python 3.12 itself if needed.
 - About 6 GB of free disk space for the first install. The speech model is about 2.5 GB, downloaded once.
 
@@ -103,8 +104,24 @@ The app is not sandboxed (it starts the bundled Python and reads videos from any
 
 ## Command line install
 
+The installer of the release `v0.1.0`, fetched from that tag:
+
 ```
-curl -fsSL https://raw.githubusercontent.com/jwiderberg/framescribe/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jwiderberg/framescribe/v0.1.0/install.sh | bash
+```
+
+The same with a check of the script before it runs. The release notes give the SHA-256 of `install.sh` at that tag. Compare the two values by eye, and run the script only when they are equal:
+
+```
+curl -fsSLO https://raw.githubusercontent.com/jwiderberg/framescribe/v0.1.0/install.sh
+shasum -a 256 install.sh
+bash install.sh
+```
+
+The tagged URL works from the first release on. Until a release exists, the tag does not resolve and the one-liner fails with a 404. Install from the branch `main` then, knowing that it is whatever was pushed last:
+
+```
+curl -fsSL https://raw.githubusercontent.com/jwiderberg/framescribe/main/install.sh | bash -s -- --from-main
 ```
 
 Or from a clone, so you can read the script first:
@@ -115,11 +132,13 @@ cd framescribe
 ./install.sh
 ```
 
-The installer checks for macOS on Apple Silicon, `ffmpeg`, `ffprobe` and `uv`. If one is missing it prints the install command and stops, unless you pass `--install-ffmpeg` (runs `brew install ffmpeg`) or `--install-uv` (uv's official installer, without touching your shell profile). Then it runs `uv tool install --force --reinstall --python 3.12` on the clone that holds the script, or on the GitHub repository when the script is piped into `bash`. Running it again upgrades. Then `framescribe setup` downloads the speech model (`--no-model` skips this) and `framescribe doctor` checks the result. After `--no-model`, a doctor failure caused only by the missing model is expected and the script exits 0. Any other failure exits 1.
+The installer checks for macOS on Apple Silicon, `ffmpeg`, `ffprobe` and `uv`. If one is missing it prints the install command and stops, unless you pass `--install-ffmpeg` (runs `brew install ffmpeg`) or `--install-uv` (uv's official installer, without touching your shell profile). Then it runs `uv tool install --force --reinstall --python 3.12 -c constraints.txt` on the clone that holds the script. A piped script installs the release tag (`git+https://github.com/jwiderberg/framescribe@v0.1.0`) instead, or `main` with `--from-main`. Running it again upgrades. Then `framescribe setup` downloads the speech model (`--no-model` skips this) and `framescribe doctor` checks the result. After `--no-model`, a doctor failure caused only by the missing model is expected and the script exits 0. Any other failure exits 1.
 
-It never uses `sudo`, never edits a shell profile (it prints the `PATH` line to add if needed), sends no telemetry and installs nothing else. `./install.sh --dry-run` prints every action without doing it. `./install.sh --help` lists the options. `FRAMESCRIBE_SOURCE` installs from a different directory or Git URL.
+`constraints.txt` holds the dependency versions of `uv.lock` (`uv export --locked --no-dev --no-emit-project --no-hashes`, kept equal to the lock by a test). The installer reads it from the clone, or from the same tag or branch on GitHub, so an install gets exactly the locked versions. It has no hashes: `uv tool install` (0.11) accepts hash lines in a constraints file but does not check them, so they would only look like a check. The lock's hashes are checked where they are enforced, in the app build (`uv pip install --require-hashes`).
 
-By hand: `uv tool install --python 3.12 .` in a clone, then `framescribe setup`.
+It never uses `sudo`, refuses to run as root (`--allow-root` overrides that), never edits a shell profile (it prints the `PATH` line to add if needed), sends no telemetry and installs nothing else. `./install.sh --dry-run` prints every action without doing it. `./install.sh --help` lists the options. `FRAMESCRIBE_SOURCE` installs a different directory or Git URL, as given and without `constraints.txt`.
+
+By hand: `uv tool install --python 3.12 -c constraints.txt .` in a clone, then `framescribe setup`.
 
 ### doctor
 
@@ -167,8 +186,12 @@ A host application (the Mac app is one) should use `--progress json` and `--run-
 ## Using the report with an LLM
 
 1. Run framescribe on the recording.
-2. Give an LLM tool that can read files and open images the folder `out/recording/`, so `report.md`, `ANALYSIS_PROMPT.md` and `frames/` are together.
+2. Give an LLM tool that can read files and open images these files from `out/recording/`, together: `report.md`, `ANALYSIS_PROMPT.md` and the folder `frames/`. Add `timeline.json` if the tool should have the same evidence as data. Nothing else is needed.
 3. Tell it to follow `ANALYSIS_PROMPT.md`. That file asks for a summary, a findings table, a step-by-step walkthrough and open questions, with a timestamp, a step number and a quote or frame as evidence for every finding.
+
+Do not share `run.json`, `work/` or the app's `framescribe-app.log`. They are local diagnostics and contain the full paths of the video and the output folder on this Mac, which name the user account and the folders. `report.md`, `transcript.md` and `timeline.json` name the video by its file name only.
+
+Everything in the report is recorded content: what someone said and what a screen showed. Some of it may be written to steer an AI ("ignore your instructions", a link to open). `ANALYSIS_PROMPT.md` and the report's "How to read this document" tell the tool to treat all of it as data, to report such text as a finding instead of acting on it, to open only the files under `frames/` and to output no link or image that points elsewhere. Special characters in recorded text are escaped in `report.md` and `transcript.md`, so no recorded text can become a link, an image, a heading or HTML when the file is rendered. These measures make misuse harder. They do not make an LLM immune to it, so check what the tool does with a recording from an untrusted source.
 
 `ANALYSIS_PROMPT.md` is fixed text. Edit it for another purpose. A tool that cannot open images can still use the report, but the frames are the authority where on-screen text was misread. The report is long (about 67,000 words for a two-hour recording) because it keeps every transcript segment and every visible change.
 
@@ -185,6 +208,8 @@ A fixed list of stages. Each reads earlier artifacts and writes one JSON artifac
 - **report** is deterministic and calls no model. It splits the recording into steps (each starts at a confident page change and is 30 s to 240 s long), picks a main frame and up to three extra frames per step, and merges speech, screen changes and pointer hints into one timeline. Step titles are the tallest on-screen line of the main frame, exactly as read.
 
 Thresholds and the reasons for them are in [docs/DESIGN.md](docs/DESIGN.md) and [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md).
+
+Every ffmpeg and ffprobe call that opens the video allows only local files (`-protocol_whitelist file`) and only the MP4 family and Matroska demuxers (`-format_whitelist mov,matroska`), with the absolute path of the file. A file that is really an ffconcat script, an HLS playlist or another description of other media is refused before anything is read from it. Before extracting anything, `ingest` refuses a video longer than 12 hours, a frame larger than 8192 pixels on a side, and audio whose 16 kHz WAV would be larger than about 1.4 GB.
 
 A stage is loaded from the cache when its key matches. The key covers a fingerprint of the video (size, modification time, hashes of the first and last 4 MB), the stage and its version, the configuration it uses and the stages it depends on. `--force STAGE` recomputes that stage and everything downstream (`--force visual` redoes `visual`, `ocr` and `report`). It can be repeated, and `--force all` redoes everything. Stage names: `ingest`, `asr.parakeet`, `asr.whisperkit`, `asr`, `visual`, `ocr`, `report`.
 
@@ -225,8 +250,8 @@ With `--asr auto` and no CLI or model, WhisperKit is skipped and `run.json` reco
 | Option | Default | Meaning |
 |---|---|---|
 | `VIDEO` | required | Source video file. |
-| `--out DIR` | `out` | Output root. Results go to `DIR/<video-stem>/`. |
-| `--run-dir DIR` | none | Put the results in exactly this folder instead. |
+| `--out DIR` | `out` | Output root. Results go to `DIR/<video-stem>/`, or to `DIR/video/` when the stem cannot be a folder name of its own (empty, `.` or `..`, or holding a control character). |
+| `--run-dir DIR` | none | Put the results in exactly this folder instead. It must not be a symbolic link. |
 | `--asr parakeet\|whisperkit\|both\|auto` | `auto` | Speech backend. `auto` is parakeet, plus WhisperKit only when its CLI and model are both configured. `whisperkit` and `both` fail when WhisperKit does not resolve. |
 | `--transcript FILE` | none | Use this SRT, VTT or transcript JSON instead of speech recognition. Not cross-checked. Only with `--asr auto`. |
 | `--content-rect x,y,w,h` | none | Skip layout detection and use this rectangle, in pixels. It must fit inside the frame. |
@@ -249,9 +274,9 @@ With `--asr auto` and no CLI or model, WhisperKit is skipped and `run.json` reco
 |---|---|---|
 | `FRAMESCRIBE_WHISPERKIT_CLI` | `run`, `doctor` | Path or name of `whisperkit-cli`. `--whisperkit-cli` wins over it. |
 | `FRAMESCRIBE_WHISPERKIT_MODEL` | `run`, `doctor` | WhisperKit model directory. `--whisperkit-model` wins over it. |
-| `HF_HOME`, `HF_HUB_CACHE` | `setup`, `run`, `doctor` | Where the Hugging Face cache (the speech model) lives. |
+| `HF_HOME`, `HF_HUB_CACHE` | `setup`, `run`, `doctor` | Where the Hugging Face cache (the speech model) lives. The Mac app passes these and `HF_ENDPOINT` from the login shell, never `HF_TOKEN`: the model is public. |
 | `HF_HUB_OFFLINE` | `setup` | `run` and the speech-model stage set it to `1` for their process. If you set it, `setup` refuses to download. |
-| `FRAMESCRIBE_SOURCE` | `install.sh` | What to install: a directory or a Git URL. |
+| `FRAMESCRIBE_SOURCE` | `install.sh` | What to install instead of the clone or the release tag: a directory or a Git URL, installed as given. |
 
 | Command | Exit status |
 |---|---|
@@ -300,20 +325,24 @@ MLX's buffer cache is unbounded by default and grew to 26 GB on 10 minutes of au
 - **OCR.** Roughly one on-screen line in five or six has a misread (a capital I read as a lower-case l, small text, merged labels). Icon-only items are not read. A misread splits one term into variants in the vocabulary list.
 - **Report structure.** Step titles are the tallest on-screen line, so they sometimes name a button or a field label instead of the page. Steps follow page changes and length, not topics.
 - **Filled-in speech** has the wording and the mistakes of its source, and its timing inside the gap is approximate.
+- **Memory for long audio.** The speech stages read the whole 16 kHz track into memory and compute its level from 64-bit copies of it: by calculation about 1 GB per hour of audio at the peak, for a few seconds. A 12-hour video, the longest framescribe accepts, needs about 12 GB for that step alone.
+- **Containers.** Only MP4, MOV, M4V, MKV and WebM files are read. The Mac app accepts any file macOS calls a movie, and a run of another kind of file fails with that message.
 - **Not implemented:** correcting names from on-screen text, resolving what the speaker refers to, automatic call-outs (bugs, confusion, praise), subtitle files, speaker identification from audio, a configuration file.
 
 ## Privacy
 
 Everything runs on your machine. The video, audio, frames and text never leave it. No upload, no telemetry, no account.
 
-The only network use is `framescribe setup`, which downloads the speech model from Hugging Face once. `run` and `doctor` never use the network. `run` and the speech-model stage put Hugging Face's client into offline mode, so a program that uses framescribe as a library cannot trigger a download either (its process is left in offline mode afterwards). `install.sh` uses the network through `uv` (the Python dependencies) and through `setup`. The optional WhisperKit CLI is a separate program you supply.
+The only network use is `framescribe setup`, which downloads the speech model from Hugging Face once: a fixed commit of `mlx-community/parakeet-tdt-0.6b-v3` whose two files are checked against SHA-256 values built into framescribe. `doctor` checks them again in the cache. `run` and `doctor` never use the network. `run` and the speech-model stage put Hugging Face's client into offline mode, so a program that uses framescribe as a library cannot trigger a download either (its process is left in offline mode afterwards). `install.sh` uses the network through `uv` (the package, `constraints.txt` and the Python dependencies) and through `setup`. The optional WhisperKit CLI is a separate program you supply.
+
+How to report a security problem, and what framescribe trusts and does not trust, is in [SECURITY.md](SECURITY.md).
 
 ## Development
 
 ```
 git clone https://github.com/jwiderberg/framescribe.git
 cd framescribe
-uv sync
+uv sync                           # the locked dependencies, with pytest and pyyaml for the tests
 uv run pytest -q                  # all tests, including the slow end-to-end test
 uv run pytest -q -m "not slow"    # without the end-to-end test
 ```
@@ -330,9 +359,11 @@ app/.build/debug/framescribe-e2e --app app/build/Framescribe.app --video VIDEO -
 src/framescribe/   the package: CLI, pipeline, stages, report
 scripts/              measurement scripts, release-secrets.sh
 install.sh            the installer
+constraints.txt       uv.lock's versions for the installer (uv export, checked by a test)
+SECURITY.md           reporting a vulnerability, trust boundaries
 docs/DESIGN.md        design, stage rules, artifact contracts, file layout
 docs/MEASUREMENTS.md  measured numbers and what they were measured on
-app/                  the Mac app: Swift package, build_app.sh, run_tests.sh, preflight_app.sh
+app/                  the Mac app: Swift package, build_app.sh, run_tests.sh, the signing and checking scripts
 .github/workflows/    release.yml, the signed and notarized release (docs/RELEASING.md)
 ```
 

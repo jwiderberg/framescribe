@@ -6,15 +6,20 @@ import re
 import shutil
 import stat
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
 
 from framescribe.doctor import MISSING, OK, WARNING, Check, as_dict
 
-SCRIPT = Path(__file__).parent.parent / "install.sh"
+ROOT = Path(__file__).parent.parent
+SCRIPT = ROOT / "install.sh"
 BASH = shutil.which("bash")
-GIT_SOURCE = "git+https://github.com/jwiderberg/framescribe"
+VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+GIT_SOURCE = f"git+https://github.com/jwiderberg/framescribe@v{VERSION}"  # the release tag, not main
+TAG_CONSTRAINTS = f"https://raw.githubusercontent.com/jwiderberg/framescribe/v{VERSION}/constraints.txt"
+CLONE_INSTALL = f"uv tool install --force --reinstall --python 3.12 -c {SCRIPT.parent}/constraints.txt {SCRIPT.parent}"
 
 pytestmark = pytest.mark.skipif(BASH is None or not SCRIPT.is_file(), reason="needs bash and install.sh")
 
@@ -42,7 +47,7 @@ def world(tmp_path):
     """A PATH directory with symlinks to the few real tools the script needs, plus stubs added per test."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for tool in ("dirname", "grep", "cat", "env", "sh", "awk"):
+    for tool in ("dirname", "grep", "cat", "env", "sh", "awk", "id"):
         real = shutil.which(tool)
         assert real, tool
         (bin_dir / tool).symlink_to(real)
@@ -113,7 +118,8 @@ def test_shellcheck_passes():
 def test_help_lists_every_option(world):
     res = world.run("--help")
     assert res.returncode == 0
-    for option in ("--no-model", "--install-ffmpeg", "--install-uv", "--dry-run", "--help", "FRAMESCRIBE_SOURCE"):
+    for option in ("--no-model", "--install-ffmpeg", "--install-uv", "--dry-run", "--help", "FRAMESCRIBE_SOURCE",
+                   "--from-main", "--allow-root"):
         assert option in res.stdout
 
 
@@ -128,7 +134,7 @@ def test_dry_run_from_the_clone_prints_the_plan_and_does_nothing(world):
     assert res.returncode == 0, res.stderr
     out = res.stdout
     assert "[dry-run] nothing will be installed or downloaded" in out
-    assert f"[dry-run] would run: uv tool install --force --reinstall --python 3.12 {SCRIPT.parent}" in out  # from the clone
+    assert f"[dry-run] would run: {CLONE_INSTALL}" in out  # from the clone, with the lock's versions
     assert "about 2.5 GB" in out and "at least 6 GB" in out
     assert "[dry-run] would run: framescribe setup" in out
     assert "[dry-run] would run: framescribe doctor" in out
@@ -151,7 +157,7 @@ def test_piped_from_somewhere_else_installs_from_the_git_url(world, tmp_path):
     elsewhere.mkdir()
     res = world.run("--dry-run", cwd=elsewhere, stdin=SCRIPT.read_text())
     assert res.returncode == 0, res.stderr
-    assert f"would run: uv tool install --force --reinstall --python 3.12 {GIT_SOURCE}" in res.stdout
+    assert f"would run: uv tool install --force --reinstall --python 3.12 -c {TAG_CONSTRAINTS} {GIT_SOURCE}\n" in res.stdout
 
 
 def test_piped_inside_a_clone_still_installs_from_the_git_url(world):
@@ -159,8 +165,8 @@ def test_piped_inside_a_clone_still_installs_from_the_git_url(world):
     world.everything()
     res = world.run("--dry-run", cwd=SCRIPT.parent, stdin=SCRIPT.read_text())
     assert res.returncode == 0, res.stderr
-    assert f"--reinstall --python 3.12 {GIT_SOURCE}\n" in res.stdout
-    assert f"--python 3.12 {SCRIPT.parent}" not in res.stdout
+    assert f"--reinstall --python 3.12 -c {TAG_CONSTRAINTS} {GIT_SOURCE}\n" in res.stdout
+    assert f"{SCRIPT.parent}" not in res.stdout
 
 
 def test_a_piped_script_honours_the_source_variable(world):
@@ -174,7 +180,7 @@ def test_the_script_file_run_from_another_directory_installs_from_its_own_clone(
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     res = world.run("--dry-run", cwd=elsewhere)
-    assert f"--reinstall --python 3.12 {SCRIPT.parent}\n" in res.stdout
+    assert f"would run: {CLONE_INSTALL}\n" in res.stdout
 
 
 def test_the_source_can_be_overridden(world):
@@ -243,8 +249,7 @@ def test_a_real_run_installs_downloads_the_model_and_checks_in_that_order(world)
     world.everything()
     res = world.run()
     assert res.returncode == 0, res.stderr
-    assert world.calls_made() == [f"uv tool install --force --reinstall --python 3.12 {SCRIPT.parent}", "uv tool dir --bin",
-                                  "framescribe setup", "framescribe doctor"]
+    assert world.calls_made() == [CLONE_INSTALL, "uv tool dir --bin", "framescribe setup", "framescribe doctor"]
     assert f"export PATH=\"{world.tool_bin}:$PATH\"" in res.stdout  # the bin directory is not on PATH: told, not edited
     assert not world.home.exists()  # nothing was written to the home directory, so no profile either
     assert "Next step: transcribe a recording." in res.stdout
@@ -254,7 +259,7 @@ def test_a_real_run_without_the_model_does_not_download_it(world):
     world.everything()
     res = world.run("--no-model")
     assert res.returncode == 0
-    assert world.calls_made() == [f"uv tool install --force --reinstall --python 3.12 {SCRIPT.parent}", "uv tool dir --bin", "framescribe doctor"]
+    assert world.calls_made() == [CLONE_INSTALL, "uv tool dir --bin", "framescribe doctor"]
 
 
 def test_a_failing_download_stops_the_script(world):
@@ -326,3 +331,61 @@ def test_the_script_never_calls_sudo_or_edits_a_profile():
     assert not re.search(r"(^|[;&|(]|\brun)\s*sudo\b", text, re.MULTILINE)  # never in command position
     for profile in (".zshrc", ".bashrc", ".bash_profile", ".zprofile", ".profile"):
         assert profile not in text
+
+
+# ---- the release tag, the lock and root ----------------------------------------------------------------------------
+
+
+def test_the_script_installs_the_version_in_pyproject():
+    m = re.search(r'^VERSION="([^"]+)"', SCRIPT.read_text(), re.MULTILINE)
+    assert m and m.group(1) == VERSION
+    head = "\n".join(SCRIPT.read_text().splitlines()[:12])
+    assert f"raw.githubusercontent.com/jwiderberg/framescribe/v{VERSION}/install.sh" in head
+
+
+def test_the_readme_one_line_install_fetches_the_script_from_the_tag():
+    readme = (ROOT / "README.md").read_text()
+    assert f"https://raw.githubusercontent.com/jwiderberg/framescribe/v{VERSION}/install.sh | bash" in readme
+    assert "shasum -a 256 install.sh" in readme and "--from-main" in readme
+    # main is only the documented fallback, with the option that says so
+    for line in readme.splitlines():
+        if "framescribe/main/install.sh" in line:
+            assert "--from-main" in line, line
+
+
+def test_from_main_installs_the_branch_with_its_constraints(world, tmp_path):
+    world.everything()
+    res = world.run("--dry-run", "--from-main", cwd=tmp_path, stdin=SCRIPT.read_text())
+    assert res.returncode == 0, res.stderr
+    main = "https://raw.githubusercontent.com/jwiderberg/framescribe/main/constraints.txt"
+    assert f"--python 3.12 -c {main} git+https://github.com/jwiderberg/framescribe@main\n" in res.stdout
+
+
+def test_the_source_variable_installs_as_given_without_constraints(world):
+    world.everything()
+    res = world.run("--dry-run", env={"FRAMESCRIBE_SOURCE": "/some/where"})
+    assert "would run: uv tool install --force --reinstall --python 3.12 /some/where\n" in res.stdout
+
+
+def test_root_is_refused_unless_asked_for(world):
+    world.everything()
+    (world.path / "id").unlink()
+    write_tool(world.path, "id", '#!/bin/sh\n[ "$1" = -u ] && echo 0\n')
+    res = world.run("--dry-run")
+    assert res.returncode == 1 and "refusing to run as root" in res.stderr and "--allow-root" in res.stderr
+    assert "tool install" not in res.stdout
+    ok = world.run("--dry-run", "--allow-root")
+    assert ok.returncode == 0 and "tool install" in ok.stdout
+
+
+def test_the_committed_constraints_equal_a_fresh_export_of_the_lock():
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("uv not installed")
+    fresh = subprocess.run([uv, "export", "--offline", "--locked", "--no-dev", "--no-emit-project", "--no-hashes",
+                            "--no-header", "--format", "requirements-txt", "--project", str(ROOT)],
+                           capture_output=True, text=True, timeout=120)
+    assert fresh.returncode == 0, fresh.stderr
+    assert (ROOT / "constraints.txt").read_text() == fresh.stdout
+    # no hashes: uv tool install accepts --hash lines in a constraints file but does not check them (uv 0.11)
+    assert "--hash" not in fresh.stdout

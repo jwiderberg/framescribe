@@ -2,8 +2,13 @@
 # Installs framescribe as a uv tool on a Mac with Apple Silicon.
 #
 #   ./install.sh                        from a clone of the repository
-#   curl -fsSL https://raw.githubusercontent.com/jwiderberg/framescribe/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/jwiderberg/framescribe/v0.1.0/install.sh | bash
+#                                       the release v0.1.0 (the README shows how to check the file first)
 #   ./install.sh --help
+#
+# What it installs: the clone it is in, or, when piped, the release tag v$VERSION from GitHub (VERSION below, the
+# version in pyproject.toml), or with --from-main the branch main. The dependency versions of uv.lock apply in every
+# case, through constraints.txt (from the clone, or from the same tag or branch).
 #
 # It never uses sudo, never edits a shell profile and sends no telemetry. The network is used by `uv` (the package
 # and its Python dependencies) and by `framescribe setup` (the speech model, from Hugging Face). Safe to run again:
@@ -13,7 +18,10 @@
 # work happens in `main`, called on the last line. A truncated download therefore runs nothing.
 set -euo pipefail
 
-GIT_SOURCE="git+https://github.com/jwiderberg/framescribe"
+VERSION="0.1.0"  # the release this script installs when piped; equal to pyproject.toml (tests check it)
+REPO_URL="https://github.com/jwiderberg/framescribe"
+RAW_URL="https://raw.githubusercontent.com/jwiderberg/framescribe"
+CONSTRAINTS_FILE="constraints.txt"  # uv.lock's versions as constraints (uv export --no-hashes, see the README)
 UV_INSTALL_URL="https://astral.sh/uv/install.sh"
 MODEL_REPO="mlx-community/parakeet-tdt-0.6b-v3"
 PYTHON_VERSION="3.12"  # the only version framescribe supports; uv fetches it when it is not installed
@@ -22,6 +30,10 @@ DRY_RUN=0
 WITH_MODEL=1
 INSTALL_FFMPEG=0
 INSTALL_UV=0
+FROM_MAIN=0
+ALLOW_ROOT=0
+SOURCE=""
+CONSTRAINTS=""
 
 say() { printf '%s\n' "$*"; }
 err() { printf 'error: %s\n' "$*" >&2; }
@@ -49,18 +61,25 @@ Installs framescribe with `uv tool install`, downloads the speech model
 (about 2.5 GB, one time) and runs `framescribe doctor`.
 
 Options:
+  --from-main       install the branch main from GitHub instead of the release tag
+                    (before the first release, the tag does not exist yet)
   --no-model        do not download the speech model (run `framescribe setup` later)
   --install-ffmpeg  install ffmpeg with Homebrew if it is missing (`brew install ffmpeg`)
   --install-uv      install uv with its official installer if it is missing
                     (without touching your shell profile)
   --dry-run         print every action without doing it
+  --allow-root      run even as root (refused otherwise: uv tools belong to a user)
   --help            show this text
 
+What is installed: the clone this script file is in; when the script is piped into bash, or read from
+anywhere else, the release tag on GitHub (git+https://github.com/jwiderberg/framescribe@vVERSION), or main
+with --from-main. The versions locked in uv.lock apply through constraints.txt, read from the clone or
+from the same tag or branch.
+
 Environment:
-  FRAMESCRIBE_SOURCE   what to install: a directory or a pip/uv requirement such as
-                          git+https://github.com/jwiderberg/framescribe
-                          (default: the clone this script file is in; when the script is piped into bash,
-                          or read from anywhere else, the GitHub repository)
+  FRAMESCRIBE_SOURCE   install this instead: a directory or a pip/uv requirement such as
+                          git+https://github.com/jwiderberg/framescribe@main
+                          (installed as given, without constraints.txt)
 
 Needs macOS on Apple Silicon, ffmpeg and uv. No sudo, no shell profile edits, no telemetry.
 EOF
@@ -82,6 +101,12 @@ resolve_source() {
   local here
   if [ -n "${FRAMESCRIBE_SOURCE:-}" ]; then
     SOURCE="$FRAMESCRIBE_SOURCE"
+    CONSTRAINTS=""
+    return
+  fi
+  if [ "$FROM_MAIN" -eq 1 ]; then
+    SOURCE="git+$REPO_URL@main"
+    CONSTRAINTS="$RAW_URL/main/$CONSTRAINTS_FILE"
     return
   fi
   here="$(script_dir)"
@@ -89,8 +114,19 @@ resolve_source() {
   # to stand in is not a reason to install from it.
   if is_clone "$here"; then
     SOURCE="$here"
+    CONSTRAINTS="$here/$CONSTRAINTS_FILE"
+    [ -f "$CONSTRAINTS" ] || die "$CONSTRAINTS is missing from this clone"
   else
-    SOURCE="$GIT_SOURCE"
+    SOURCE="git+$REPO_URL@v$VERSION"
+    CONSTRAINTS="$RAW_URL/v$VERSION/$CONSTRAINTS_FILE"
+  fi
+}
+
+# Root installs a tool into root's home and a fresh shell of the user never sees it; worse, a script run with sudo
+# can do anything. Refused unless asked for.
+check_not_root() {
+  if [ "$(id -u)" = "0" ] && [ "$ALLOW_ROOT" -eq 0 ]; then
+    die "refusing to run as root: run it as the user who will use framescribe (or pass --allow-root)."
   fi
 }
 
@@ -179,7 +215,12 @@ check_git_if_needed() {
 
 install_tool() {
   say "Installing framescribe from $SOURCE"
-  run uv tool install --force --reinstall --python "$PYTHON_VERSION" "$SOURCE"
+  if [ -n "$CONSTRAINTS" ]; then
+    say "with the dependency versions of uv.lock: $CONSTRAINTS"
+    run uv tool install --force --reinstall --python "$PYTHON_VERSION" -c "$CONSTRAINTS" "$SOURCE"
+  else
+    run uv tool install --force --reinstall --python "$PYTHON_VERSION" "$SOURCE"
+  fi
 }
 
 main() {
@@ -192,6 +233,8 @@ main() {
       --install-ffmpeg) INSTALL_FFMPEG=1 ;;
       --install-uv) INSTALL_UV=1 ;;
       --dry-run) DRY_RUN=1 ;;
+      --from-main) FROM_MAIN=1 ;;
+      --allow-root) ALLOW_ROOT=1 ;;
       *) err "unknown option: $1 (see --help)"; exit 2 ;;
     esac
     shift
@@ -201,6 +244,7 @@ main() {
     say "[dry-run] nothing will be installed or downloaded"
   fi
 
+  check_not_root
   check_platform
   check_ffmpeg
   check_uv
