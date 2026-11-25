@@ -40,7 +40,7 @@ Issues = "https://github.com/jwiderberg/framescribe/issues"
 framescribe = "framescribe.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pyyaml>=6"]  # pyyaml: tests/test_release.py reads the workflow
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]

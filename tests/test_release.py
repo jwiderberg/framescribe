@@ -1,6 +1,7 @@
 """The release pipeline, offline: the workflow's security properties (read from the YAML), every shell block it runs
-(bash -n, and the version check executed), the secrets script against throwaway certificates, and the packaging and
-preflight scripts against a tiny bundle made of copies of a system binary. Nothing here calls GitHub or Apple."""
+(bash -n, and the version check executed), the secrets script against throwaway certificates and a stub `gh`, and the
+structure check, signing, packaging and preflight scripts against a tiny bundle made of copies of a system binary.
+Nothing here calls GitHub or Apple."""
 
 from __future__ import annotations
 
@@ -23,6 +24,8 @@ PREFLIGHT = ROOT / "app" / "preflight_app.sh"
 PACKAGE = ROOT / "app" / "package_app.sh"
 BUILD = ROOT / "app" / "build_app.sh"
 SIGN = ROOT / "app" / "sign_app.sh"
+CHECK = ROOT / "app" / "bundle_check.sh"
+BUNDLE_ID = "io.github.jwiderberg.framescribe"
 SECRET_NAMES = {
     "DEVELOPER_ID_P12_BASE64",
     "DEVELOPER_ID_P12_PASSWORD",
@@ -60,16 +63,17 @@ def as_text(node) -> str:
 def test_triggers_are_a_version_tag_and_a_manual_run_with_a_dry_run_input(wf):
     on = triggers(wf)
     assert set(on) == {"push", "workflow_dispatch"}  # no pull_request, pull_request_target or workflow_run
-    assert on["push"] == {"tags": ["v*"]}
+    assert on["push"] == {"tags": ["v*", "!v*-dry*"]}  # a pushed dry-run tag starts nothing
     dry = on["workflow_dispatch"]["inputs"]["dry_run"]
     assert dry["type"] == "boolean" and dry["default"] is True  # a manual run is a dry run unless asked otherwise
 
 
 def test_the_token_is_read_only_at_the_top_and_each_job_asks_only_for_what_it_needs(wf):
     assert wf["permissions"] == {"contents": "read"}
-    assert set(wf["jobs"]) == {"build", "sign", "publish"}
+    assert set(wf["jobs"]) == {"build", "sign", "verify", "publish"}
     assert wf["jobs"]["build"]["permissions"] == {"contents": "read"}
     assert wf["jobs"]["sign"]["permissions"] == {"contents": "read"}
+    assert wf["jobs"]["verify"]["permissions"] == {"contents": "read"}
     assert wf["jobs"]["publish"]["permissions"] == {
         "contents": "write",
         "id-token": "write",
@@ -77,7 +81,7 @@ def test_the_token_is_read_only_at_the_top_and_each_job_asks_only_for_what_it_ne
     }
 
 
-@pytest.mark.parametrize("job", ["build", "sign"])
+@pytest.mark.parametrize("job", ["build", "sign", "verify"])
 def test_build_and_sign_run_on_apple_silicon_macos_15_or_later(wf, job):
     runner = wf["jobs"][job]["runs-on"]
     m = re.fullmatch(r"macos-(\d+)", runner)
@@ -86,9 +90,10 @@ def test_build_and_sign_run_on_apple_silicon_macos_15_or_later(wf, job):
 
 def test_only_the_sign_job_has_an_environment_and_it_is_release(wf):
     assert {name: job.get("environment") for name, job in wf["jobs"].items()} == {
-        "build": None, "sign": "release", "publish": None}
+        "build": None, "sign": "release", "verify": None, "publish": None}
     assert wf["jobs"]["sign"]["needs"] == "build"
-    assert wf["jobs"]["publish"]["needs"] == ["build", "sign"]
+    assert wf["jobs"]["verify"]["needs"] == ["build", "sign"]
+    assert wf["jobs"]["publish"]["needs"] == ["build", "sign", "verify"]  # nothing is published unless verify passed
 
 
 # ---- secrets -------------------------------------------------------------------------------------------------------
@@ -101,6 +106,7 @@ def secret_refs(node) -> set[str]:
 def test_the_secrets_are_the_five_the_script_sets_and_only_the_sign_job_sees_them(wf):
     assert secret_refs(wf["jobs"]["sign"]) == SECRET_NAMES
     assert secret_refs(wf["jobs"]["build"]) == set()
+    assert secret_refs(wf["jobs"]["verify"]) == set()
     assert secret_refs(wf["jobs"]["publish"]) == set()
     assert not re.search(r"secrets\.[A-Z]", as_text({k: v for k, v in wf.items() if k != "jobs"}))
     script = SECRETS_SCRIPT.read_text()
@@ -144,7 +150,7 @@ def test_the_keychain_is_deleted_after_signing_and_again_by_an_always_fallback(w
     fallback = steps(wf, "sign")[-1]
     assert fallback["if"] == "always()"
     assert "security delete-keychain" in fallback["run"]
-    for leftover in ("developer-id.p12", "AuthKey.p8"):
+    for leftover in ("developer-id.p12", "developer-id-import.p12", "AuthKey.p8"):
         assert leftover in fallback["run"]
 
 
@@ -169,12 +175,13 @@ def test_the_sign_job_runs_no_dependency_code_and_no_build(wf):
     assert uses == ["actions/checkout", "actions/download-artifact", "actions/upload-artifact"]
     runs = "\n".join(s.get("run", "") for s in sign["steps"])
     scripts = set(re.findall(r"app/[\w./-]+\.sh", runs))
-    assert scripts == {"app/sign_app.sh", "app/preflight_app.sh", "app/package_app.sh"}
+    assert scripts == {"app/bundle_check.sh", "app/sign_app.sh", "app/preflight_app.sh", "app/package_app.sh"}
     # the signing script itself runs nothing from the bundle
     body = SIGN.read_text()
     assert "python3.12 -" not in body and "/bin/python" not in body.replace("bin/python3.*", "")
     names = [s.get("name") for s in sign["steps"]]
-    assert names.index("Unpack the unsigned bundle") < names.index("Import Developer ID certificate")
+    assert names.index("Unpack the unsigned bundle") < names.index("Check the bundle structure") \
+        < names.index("Import Developer ID certificate")
 
 
 # ---- actions and caches ---------------------------------------------------------------------------------------------
@@ -187,20 +194,33 @@ def test_every_action_is_pinned_to_a_commit_sha_with_its_version_in_a_comment():
         assert re.fullmatch(r"(- )?uses: [\w.-]+/[\w./-]+@[0-9a-f]{40} # v\d+(\.\d+)*", line), line
 
 
-def test_nothing_is_cached_between_runs_and_uv_is_pinned(wf):
+def test_nothing_is_cached_between_runs_and_uv_is_pinned_with_its_sha256(wf):
     for job in wf["jobs"].values():
         for s in job["steps"]:
             assert not s.get("uses", "").startswith("actions/cache"), s
-    setups = [(j, s) for j, job in wf["jobs"].items() for s in job["steps"]
-              if s.get("uses", "").startswith("astral-sh/setup-uv@")]
-    assert [j for j, _ in setups] == ["build"]
-    uv = setups[0][1]
-    assert uv["with"]["enable-cache"] is False
-    assert re.fullmatch(r"\d+\.\d+\.\d+", uv["with"]["version"])
+            assert not s.get("uses", "").startswith("astral-sh/"), s  # uv comes from its release, checked by SHA-256
+    installs = [(j, s) for j, job in wf["jobs"].items() for s in job["steps"] if s.get("name") == "Install uv"]
+    assert [j for j, _ in installs] == ["build"]
+    uv = installs[0][1]
+    assert re.fullmatch(r"\d+\.\d+\.\d+", uv["env"]["UV_VERSION"])
+    assert re.fullmatch(r"[0-9a-f]{64}", uv["env"]["UV_SHA256"])
+    run = uv["run"]
+    assert 'shasum -a 256 -c -' in run and '"$UV_SHA256  $RUNNER_TEMP/uv.tar.gz"' in run
+    assert run.index("shasum -a 256 -c") < run.index("tar -xzf") < run.index("GITHUB_PATH")  # checked before use
+    assert "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-aarch64-apple-darwin.tar.gz" in run
+    names = [s.get("name") for s in steps(wf, "build")]
+    assert names.index("Install uv") < names.index("Build")
     # the pinned uv must be the one that builds the wheel with its own backend (uv_build>=X.Y,<X.Y+1)
     requires = tomllib.loads((ROOT / "pyproject.toml").read_text())["build-system"]["requires"]
     m = re.fullmatch(r"uv_build>=(\d+)\.(\d+),<(\d+)\.(\d+)", requires[0])
-    assert m and uv["with"]["version"].startswith(f"{m.group(1)}.{m.group(2)}.")
+    assert m and uv["env"]["UV_VERSION"].startswith(f"{m.group(1)}.{m.group(2)}.")
+
+
+def test_every_action_is_one_of_githubs_own(wf):
+    """The Actions allowlist then needs only "Allow actions created by GitHub"."""
+    uses = {s["uses"].split("@")[0] for job in wf["jobs"].values() for s in job["steps"] if "uses" in s}
+    assert uses == {"actions/checkout", "actions/upload-artifact", "actions/download-artifact",
+                    "actions/attest-build-provenance"}
 
 
 def test_the_build_uses_the_lockfile_with_hashes():
@@ -209,11 +229,12 @@ def test_the_build_uses_the_lockfile_with_hashes():
     assert "--require-hashes" in script and "--only-binary :all:" in script
 
 
-@pytest.mark.parametrize("job", ["build", "sign"])
-def test_checkout_is_at_the_triggering_ref_without_persisted_credentials(wf, job):
+@pytest.mark.parametrize("job", ["build", "sign", "verify"])
+def test_checkout_is_at_the_triggering_commit_without_persisted_credentials(wf, job):
     checkout = steps(wf, job)[0]
     assert checkout["uses"].startswith("actions/checkout@")
-    assert checkout["with"] == {"ref": "${{ github.ref }}", "persist-credentials": False}
+    # the commit the run started for: a tag moved while the run waits for approval does not change what is signed
+    assert checkout["with"] == {"ref": "${{ github.sha }}", "persist-credentials": False}
     assert not any(s.get("uses", "").startswith("actions/checkout@") for s in steps(wf, "publish"))
 
 
@@ -222,32 +243,46 @@ def test_checkout_is_at_the_triggering_ref_without_persisted_credentials(wf, job
 
 def evaluate(expression: str, **context) -> bool:
     """Evaluates the small subset of GitHub's expression syntax the publish condition uses."""
-    py = expression.replace("&&", " and ").replace("||", " or ").replace("!", " not ")
-    py = re.sub(r"\bfalse\b", "False", re.sub(r"\btrue\b", "True", py))
-    py = py.replace(" not =", "!=")
-    names = {k: SimpleNamespace(**v) for k, v in context.items()}
+    # the literals true and false outside quotes; 'true' in quotes is a string (an output compared as text)
+    parts = re.split(r"('[^']*')", expression)
+    for i in range(0, len(parts), 2):
+        part = parts[i].replace("&&", " and ").replace("||", " or ").replace("!", " not ")
+        part = re.sub(r"\bfalse\b", "False", re.sub(r"\btrue\b", "True", part))
+        parts[i] = part.replace(" not =", "!=")
+    py = "".join(parts)
+
+    def ns(value):
+        return SimpleNamespace(**{k: ns(v) for k, v in value.items()}) if isinstance(value, dict) else value
+
+    names = {k: ns(v) for k, v in context.items()}
+    names["contains"] = lambda haystack, needle: needle.lower() in (haystack or "").lower()
     return bool(eval(py, {"__builtins__": {}}, names))  # noqa: S307 (a fixed expression from the repo)
 
 
 @pytest.mark.parametrize(
-    ("event", "ref_type", "dry_run", "publishes"),
+    ("event", "ref_type", "ref_name", "dry_run", "publish_output", "publishes"),
     [
-        ("push", "tag", None, True),
-        ("workflow_dispatch", "tag", False, True),
-        ("workflow_dispatch", "tag", True, False),
-        ("workflow_dispatch", "branch", True, False),
-        ("workflow_dispatch", "branch", False, False),
-        ("push", "branch", None, False),
+        ("push", "tag", "v0.1.0", None, "true", True),
+        ("workflow_dispatch", "tag", "v0.1.0", False, "true", True),
+        ("workflow_dispatch", "tag", "v0.1.0", True, "false", False),
+        ("workflow_dispatch", "tag", "v0.1.0-dry1", True, "false", False),
+        ("workflow_dispatch", "tag", "v0.1.0-dry1", False, "true", False),  # even if the version step said so
+        ("workflow_dispatch", "branch", "main", True, "false", False),
+        ("workflow_dispatch", "branch", "main", False, "true", False),
+        ("push", "branch", "main", None, "true", False),
+        ("push", "tag", "v0.1.0", None, "false", False),  # the version step refused: publish stays off
     ],
 )
-def test_only_a_tag_that_is_not_a_dry_run_reaches_the_publish_job(wf, event, ref_type, dry_run, publishes):
+def test_only_a_release_tag_that_is_not_a_dry_run_reaches_the_publish_job(wf, event, ref_type, ref_name, dry_run,
+                                                                          publish_output, publishes):
     condition = wf["jobs"]["publish"]["if"]
-    got = evaluate(condition, github={"event_name": event, "ref_type": ref_type}, inputs={"dry_run": dry_run})
+    got = evaluate(condition, github={"event_name": event, "ref_type": ref_type, "ref_name": ref_name},
+                   inputs={"dry_run": dry_run}, needs={"build": {"outputs": {"publish": publish_output}}})
     assert got is publishes
 
 
 def test_only_the_publish_job_can_create_or_attest_a_release(wf):
-    for job in ("build", "sign"):
+    for job in ("build", "sign", "verify"):
         text = as_text(wf["jobs"][job])
         assert "gh release" not in text and "attest" not in text and "github.token" not in text, job
     publish = steps(wf, "publish")
@@ -262,8 +297,12 @@ def test_only_the_publish_job_can_create_or_attest_a_release(wf):
 def test_the_release_notes_say_how_to_verify_and_what_is_needed(wf):
     notes = step(wf, "publish", "Release notes")["run"]
     for needed in ("shasum -a 256 -c", "gh attestation verify", "spctl --assess", "TeamIdentifier=$TEAM",
-                   "macOS 15", "Apple Silicon", "ffmpeg", "2.5 GB"):
+                   "macOS 15", "Apple Silicon", "ffmpeg", "2.5 GB", "shasum -a 256 install.sh", "$INSTALL_SHA256",
+                   "raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/install.sh"):
         assert needed in notes, needed
+    assert step(wf, "publish", "Release notes")["env"]["INSTALL_SHA256"] == "${{ needs.build.outputs.install_sha256 }}"
+    assert wf["jobs"]["build"]["outputs"]["install_sha256"] == "${{ steps.installer.outputs.sha256 }}"
+    assert "shasum -a 256 install.sh" in step(wf, "build", "Installer checksum")["run"]
     assert wf["jobs"]["sign"]["outputs"]["team"] == "${{ steps.package.outputs.team }}"
     assert step(wf, "publish", "Release notes")["env"]["TEAM"] == "${{ needs.sign.outputs.team }}"
     assert "TeamIdentifier" in step(wf, "sign", "Package")["run"]
@@ -305,7 +344,7 @@ def version_step(wf, tmp_path, **env) -> tuple[int, str]:
     script.write_text(step(wf, "build", "Version")["run"])
     out = tmp_path / "github_output"
     out.write_text("")
-    full = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(out), "DRY_RUN": "false", **env}
+    full = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(out), "DRY_RUN": "false", "EVENT": "push", **env}
     r = subprocess.run(["bash", str(script)], cwd=ROOT, env=full, capture_output=True, text=True)
     return r.returncode, out.read_text() + r.stdout
 
@@ -322,10 +361,62 @@ def test_the_version_step_refuses_a_tag_that_does_not_match_pyproject(wf, tmp_pa
     assert rc == 1 and "does not match" in out and "version=" not in out
 
 
-def test_the_version_step_allows_a_branch_only_for_a_dry_run(wf, tmp_path):
-    assert version_step(wf, tmp_path, GITHUB_REF_TYPE="branch", GITHUB_REF_NAME="main", DRY_RUN="true")[0] == 0
-    rc, out = version_step(wf, tmp_path, GITHUB_REF_TYPE="branch", GITHUB_REF_NAME="main", DRY_RUN="false")
-    assert rc == 1 and "needs a tag" in out
+def test_the_version_step_refuses_a_branch_even_for_a_dry_run(wf, tmp_path):
+    """The release environment admits tags only, so a run from a branch could never sign: it stops at once."""
+    for dry in ("true", "false"):
+        rc, out = version_step(wf, tmp_path, GITHUB_REF_TYPE="branch", GITHUB_REF_NAME="main", DRY_RUN=dry,
+                               EVENT="workflow_dispatch")
+        assert rc == 1 and "needs a tag" in out and "version=" not in out
+
+
+def pyproject_version() -> str:
+    return tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+
+
+@pytest.mark.parametrize(
+    ("event", "suffix", "dry_run", "outcome"),
+    [
+        ("push", "", "false", "publish"),                   # a real tag pushed: a release
+        ("workflow_dispatch", "", "false", "publish"),      # run by hand on the tag with dry_run off: a release
+        ("workflow_dispatch", "", "true", "dry"),           # run by hand on the tag with dry_run on
+        ("workflow_dispatch", "-dry1", "true", "dry"),      # the dry run: signs, notarizes, verifies, publishes nothing
+        ("workflow_dispatch", "-dry12", "true", "dry"),
+        ("workflow_dispatch", "-dry1", "false", "refused"),  # a dry-run tag never publishes
+        ("push", "-dry1", "false", "refused"),              # (the trigger ignores it; were it to start, it stops)
+        ("workflow_dispatch", "-dry", "true", "refused"),   # the number is required
+        ("workflow_dispatch", "-dry1x", "true", "refused"),
+        ("workflow_dispatch", "-rc1", "true", "refused"),
+    ],
+)
+def test_the_version_step_decides_release_dry_run_or_refusal(wf, tmp_path, event, suffix, dry_run, outcome):
+    version = pyproject_version()
+    rc, out = version_step(wf, tmp_path, GITHUB_REF_TYPE="tag", GITHUB_REF_NAME=f"v{version}{suffix}",
+                           EVENT=event, DRY_RUN=dry_run)
+    if outcome == "refused":
+        assert rc == 1 and "version=" not in out, out
+    else:
+        assert rc == 0, out
+        assert f"version={version}\n" in out and f"artifact=Framescribe-{version}.zip\n" in out
+        assert f"publish={'true' if outcome == 'publish' else 'false'}\n" in out
+
+
+def tag_filter_matches(patterns: list[str], tag: str) -> bool:
+    """GitHub's filter for `on.push.tags`: `*` matches anything but `/`, a `!` pattern excludes, the last pattern that
+    matches decides."""
+    result = False
+    for pattern in patterns:
+        negate = pattern.startswith("!")
+        glob = pattern[1:] if negate else pattern
+        regex = "".join("[^/]*" if c == "*" else re.escape(c) for c in glob)
+        if re.fullmatch(regex, tag):
+            result = not negate
+    return result
+
+
+@pytest.mark.parametrize(("tag", "starts"), [
+    ("v0.1.0", True), ("v1.2.3", True), ("v0.1.0-dry1", False), ("v0.1.0-dry12", False), ("v0.1.0-dry", False)])
+def test_pushing_a_dry_run_tag_starts_nothing(wf, tag, starts):
+    assert tag_filter_matches(triggers(wf)["push"]["tags"], tag) is starts
 
 
 # ---- scripts/release-secrets.sh ------------------------------------------------------------------------------------
@@ -359,45 +450,58 @@ def certs(tmp_path_factory) -> SimpleNamespace:
        "-days", "2", "-subj", "/CN=Developer ID Application: Example Person (ABCDE12345)")
     sh("openssl", "genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", "AuthKey.p8")
     (d / "bad.p8").write_text("not a key\n")
+    # the old check only looked for these two lines
+    (d / "fake.p8").write_text("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n")
+    sh("openssl", "genpkey", "-algorithm", "RSA", "-out", "rsa.p8")
     return SimpleNamespace(
         dir=d, password=pw, devid=p12("devid.p12", "leaf.key", "leaf.pem"), other=p12("other.p12", "self.key", "self.pem"),
         selfsigned_devid=p12("fake.p12", "fake.key", "fake.pem"), p8=d / "AuthKey.p8", bad_p8=d / "bad.p8",
+        fake_p8=d / "fake.p8", rsa_p8=d / "rsa.p8",
     )
 
 
 @pytest.fixture
 def gh_stub(tmp_path) -> SimpleNamespace:
-    """A `gh` that records its calls and standard input instead of talking to GitHub."""
+    """A `gh` that records its calls and standard input instead of talking to GitHub. `gh api` on the environment
+    answers what the script's --jq expressions would print for a well protected one (STUB_ENV and STUB_POLICIES
+    change that); the environment "missing" does not exist."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
     log = tmp_path / "gh.log"
     stub = bindir / "gh"
     stub.write_text(f'#!/bin/bash\nprintf "ARGS %s\\n" "$*" >> "{log}"\nif [[ "$1 $2" == "secret set" ]]; then '
                     f'printf "STDIN %s\\n" "$(cat)" >> "{log}"; fi\n'
-                    f'if [[ "$1" == api && "$2" == */environments/missing ]]; then exit 1; fi\nexit 0\n')
+                    f'if [[ "$1" == api && "$2" == */environments/missing* ]]; then exit 1; fi\n'
+                    f'if [[ "$1" == api && "$2" == */deployment-branch-policies ]]; then echo "${{STUB_POLICIES-tag:v*}}"; exit 0; fi\n'
+                    f'if [[ "$1" == api && "$2" == */environments/* ]]; then '
+                    f'echo "${{STUB_ENV-reviewers=1 custom=true protected=false}}"; exit 0; fi\nexit 0\n')
     stub.chmod(0o755)
     return SimpleNamespace(path=f"{bindir}:{os.environ['PATH']}", log=log)
 
 
 def secrets(certs, gh_stub, p12: Path, *extra: str, password: str | None = None, p8: Path | None = None,
-            key_id: str = "ABCDEF1234") -> subprocess.CompletedProcess:
+            key_id: str = "ABCDEF1234", env: dict | None = None) -> subprocess.CompletedProcess:
     args = ["bash", str(SECRETS_SCRIPT), "--p12", str(p12), "--p8", str(p8 or certs.p8), "--key-id", key_id,
             "--issuer", "12345678-aaaa-bbbb-cccc-1234567890ab", *extra]
     return subprocess.run(args, input=f"{password or certs.password}\n", capture_output=True, text=True,
-                          env={**os.environ, "PATH": gh_stub.path})
+                          env={**os.environ, "PATH": gh_stub.path, **(env or {})})
 
 
 def test_the_secrets_script_is_valid_bash():
     assert subprocess.run(["bash", "-n", str(SECRETS_SCRIPT)]).returncode == 0
 
 
-def test_a_dry_run_checks_everything_names_the_five_secrets_and_never_calls_gh(certs, gh_stub):
+def test_a_dry_run_checks_everything_names_the_five_secrets_and_only_reads_from_gh(certs, gh_stub):
     r = secrets(certs, gh_stub, certs.devid, "--dry-run", "--repo", "example/repo")
     assert r.returncode == 0, r.stderr
     assert "Certificate: Developer ID Application: Example Person (ABCDE12345)" in r.stdout
     assert set(re.findall(r"would set (\w+) in environment release", r.stdout)) == SECRET_NAMES
     assert "nothing was set" in r.stdout
-    assert not gh_stub.log.exists()
+    assert "Environment release: 1 required reviewer(s), deployment policies: tag:v*" in r.stdout
+    calls = gh_stub.log.read_text().splitlines()
+    # read-only: auth status and two GET requests on the environment; nothing is set
+    assert [c.split()[1] for c in calls] == ["auth", "api", "api"]
+    assert not any("secret" in c or "-X" in c or "--method" in c for c in calls)
     assert certs.password not in r.stdout + r.stderr
 
 
@@ -405,7 +509,9 @@ def test_a_real_run_hands_every_value_to_gh_on_stdin_never_as_an_argument(certs,
     r = secrets(certs, gh_stub, certs.devid, "--repo", "example/repo")
     assert r.returncode == 0, r.stderr
     log = gh_stub.log.read_text()
-    assert "ARGS api repos/example/repo/environments/release --silent" in log
+    assert "ARGS api repos/example/repo/environments/release --jq" in log
+    assert "ARGS api repos/example/repo/environments/release/deployment-branch-policies --jq" in log
+    assert log.index("deployment-branch-policies") < log.index("secret set")  # checked before anything is set
     calls = [line for line in log.splitlines() if line.startswith("ARGS secret set")]
     assert {c.split()[3] for c in calls} == SECRET_NAMES
     # environment secrets, and no --body, no value on the command line
@@ -421,6 +527,23 @@ def test_a_missing_environment_stops_before_any_secret_is_set(certs, gh_stub):
     assert "secret set" not in gh_stub.log.read_text()
 
 
+@pytest.mark.parametrize(("stub_env", "stub_policies", "message"), [
+    ("reviewers=0 custom=true protected=false", "tag:v*", "has no required reviewer"),
+    ("reviewers=1 custom=false protected=false", "", "does not limit deployments to selected tags"),
+    ("reviewers=1 custom=false protected=true", "", "does not limit deployments to selected tags"),
+    ("reviewers=1 custom=true protected=false", "", "does not limit deployments to selected tags"),
+    ("reviewers=1 custom=true protected=false", "tag:v* branch:main", "admits deployments from a branch (branch:main)"),
+])
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_an_unprotected_environment_stops_before_any_secret_is_set(certs, gh_stub, stub_env, stub_policies, message,
+                                                                   dry_run):
+    r = secrets(certs, gh_stub, certs.devid, "--repo", "example/repo", *(["--dry-run"] if dry_run else []),
+                env={"STUB_ENV": stub_env, "STUB_POLICIES": stub_policies})
+    assert r.returncode == 1 and message in r.stderr and "Required reviewers" in r.stderr, r.stderr
+    assert "secret set" not in gh_stub.log.read_text()
+    assert "would set" not in r.stdout
+
+
 def test_a_certificate_that_is_not_developer_id_application_is_refused(certs, gh_stub):
     r = secrets(certs, gh_stub, certs.other, "--dry-run")
     assert r.returncode == 1 and "is not a Developer ID Application certificate" in r.stderr
@@ -434,28 +557,48 @@ def test_a_developer_id_name_on_a_certificate_apple_did_not_issue_is_refused(cer
 def test_a_wrong_password_a_bad_p8_and_a_bad_key_id_are_refused(certs, gh_stub):
     assert "could not open" in secrets(certs, gh_stub, certs.devid, "--dry-run", password="wrong").stderr
     assert "App Store Connect API key" in secrets(certs, gh_stub, certs.devid, "--dry-run", p8=certs.bad_p8).stderr
+    # parsed as a key now, not just looked at: two PEM lines around junk, and an RSA key, are refused
+    assert "does not parse" in secrets(certs, gh_stub, certs.devid, "--dry-run", p8=certs.fake_p8).stderr
+    assert "not an EC private key" in secrets(certs, gh_stub, certs.devid, "--dry-run", p8=certs.rsa_p8).stderr
     assert "--key-id" in secrets(certs, gh_stub, certs.devid, "--dry-run", key_id="abc").stderr
 
 
 # ---- app/package_app.sh and app/preflight_app.sh -------------------------------------------------------------------
 
 
-def make_bundle(root: Path, *, runtime: bool = True) -> Path:
-    """Fake.app: copies of /bin/echo as the app's executable and as runtime/bin/python3.12, signed by app/sign_app.sh
-    (with --hardened: the hardened runtime and the test entitlements, as build_app.sh --hardened signs)."""
-    app = root / "Fake.app"
-    (app / "Contents" / "MacOS").mkdir(parents=True)
-    bindir = app / "Contents" / "Resources" / "runtime" / "bin"
-    bindir.mkdir(parents=True)
-    plist = {"CFBundleExecutable": "Fake", "CFBundleName": "Fake", "CFBundleShortVersionString": "1.2.3",
-             "CFBundleIdentifier": "org.example.fake", "CFBundlePackageType": "APPL"}
+def write_plist(app: Path, **overrides: str) -> None:
+    plist = {"CFBundleExecutable": "Framescribe", "CFBundleName": "Framescribe", "CFBundleShortVersionString": "1.2.3",
+             "CFBundleIdentifier": BUNDLE_ID, "CFBundlePackageType": "APPL", **overrides}
     body = "".join(f"<key>{k}</key><string>{v}</string>" for k, v in plist.items())
     (app / "Contents" / "Info.plist").write_text(
         '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>' + body + "</dict></plist>")
-    shutil.copy("/bin/echo", app / "Contents" / "MacOS" / "Fake")
-    shutil.copy("/bin/echo", bindir / "python3.12")
+
+
+def make_unsigned_bundle(root: Path) -> Path:
+    """A tiny Framescribe.app with the layout of the real one: copies of /bin/echo as the app's executable and as
+    runtime/bin/python3.12, a data file, and the standard library folder."""
+    app = root / "Framescribe.app"
+    (app / "Contents" / "MacOS").mkdir(parents=True)
+    runtime = app / "Contents" / "Resources" / "runtime"
+    (runtime / "bin").mkdir(parents=True)
+    (runtime / "lib" / "python3.12").mkdir(parents=True)
+    write_plist(app)
+    shutil.copy("/bin/echo", app / "Contents" / "MacOS" / "Framescribe")
+    shutil.copy("/bin/echo", runtime / "bin" / "python3.12")
     (app / "Contents" / "Resources" / "data.txt").write_text("data\n")
-    r = subprocess.run(["bash", str(SIGN), *(["--hardened"] if runtime else []), str(app)], capture_output=True, text=True)
+    (runtime / "lib" / "python3.12" / "os.py").write_text("# not really\n")
+    return app
+
+
+def sign(app: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["bash", str(SIGN), *args, str(app)], capture_output=True, text=True)
+
+
+def make_bundle(root: Path, *, runtime: bool = True) -> Path:
+    """The tiny Framescribe.app signed by app/sign_app.sh (with --hardened: the hardened runtime and the test
+    entitlements, as build_app.sh --hardened signs)."""
+    app = make_unsigned_bundle(root)
+    r = sign(app, *(["--hardened"] if runtime else []))
     assert r.returncode == 0, r.stderr
     return app
 
@@ -517,13 +660,14 @@ def test_package_makes_a_ditto_zip_with_the_app_at_its_top_and_a_checksum_file(t
     out = tmp_path / "dist"
     r = subprocess.run(["bash", str(PACKAGE), "--out", str(out), str(app)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    assert sorted(p.name for p in out.iterdir()) == ["Fake-1.2.3.zip", "Fake-1.2.3.zip.sha256"]
-    assert subprocess.run(["shasum", "-a", "256", "-c", "Fake-1.2.3.zip.sha256"], cwd=out,
+    assert sorted(p.name for p in out.iterdir()) == ["Framescribe-1.2.3.zip", "Framescribe-1.2.3.zip.sha256"]
+    assert subprocess.run(["shasum", "-a", "256", "-c", "Framescribe-1.2.3.zip.sha256"], cwd=out,
                           capture_output=True).returncode == 0
     unpacked = tmp_path / "unpacked"
-    subprocess.run(["ditto", "-x", "-k", str(out / "Fake-1.2.3.zip"), str(unpacked)], check=True)
-    assert [p.name for p in unpacked.iterdir()] == ["Fake.app"]
-    assert subprocess.run(["codesign", "--verify", "--deep", "--strict", str(unpacked / "Fake.app")]).returncode == 0
+    subprocess.run(["ditto", "-x", "-k", str(out / "Framescribe-1.2.3.zip"), str(unpacked)], check=True)
+    assert [p.name for p in unpacked.iterdir()] == ["Framescribe.app"]
+    assert subprocess.run(["codesign", "--verify", "--deep", "--strict", str(unpacked / "Framescribe.app")]).returncode == 0
+    assert subprocess.run(["bash", str(CHECK), "--unpacked", str(unpacked)], capture_output=True).returncode == 0
 
 
 # ---- app/build_app.sh options (parsed before anything is built) ----------------------------------------------------
@@ -571,10 +715,12 @@ def test_clean_removes_only_what_the_build_made(tmp_path):
     repo = tmp_path / "repo"
     (repo / "app" / ".build").mkdir(parents=True)
     shutil.copy(BUILD, repo / "app" / "build_app.sh")
+    shutil.copy(CHECK, repo / "app" / "bundle_check.sh")
     shutil.copy(ROOT / "pyproject.toml", repo / "pyproject.toml")
     out = tmp_path / "out"
     for made in ("work/runtime", "Framescribe.app/Contents"):
         (out / made).mkdir(parents=True)
+    (out / "work" / ".framescribe-build").write_text("")  # an earlier build made this work folder
     (out / "Framescribe-0.1.0.zip").write_text("zip")
     (out / "Framescribe-0.1.0.zip.sha256").write_text("sum")
     (out / "keep.txt").write_text("not the script's")
@@ -587,5 +733,354 @@ def test_clean_removes_only_what_the_build_made(tmp_path):
                        text=True, env={**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}"})
     assert r.returncode != 0 and "==> clean:" in r.stdout  # cleaned, then stopped at the stubbed Swift build
     assert sorted(p.name for p in out.iterdir()) == ["keep", "keep.txt", "work"]  # work/ is made again, empty
-    assert list((out / "work").iterdir()) == []
+    assert [p.name for p in (out / "work").iterdir()] == [".framescribe-build"]  # but for the build's marker
     assert not (repo / "app" / ".build").exists()
+
+
+@macos_only
+def test_clean_leaves_a_work_folder_the_build_did_not_make(tmp_path):
+    """--out naming a folder whose work/ is someone else's: neither --clean nor the build touches it."""
+    repo = tmp_path / "repo"
+    (repo / "app").mkdir(parents=True)
+    shutil.copy(BUILD, repo / "app" / "build_app.sh")
+    shutil.copy(CHECK, repo / "app" / "bundle_check.sh")
+    shutil.copy(ROOT / "pyproject.toml", repo / "pyproject.toml")
+    out = tmp_path / "out"
+    (out / "work").mkdir(parents=True)
+    (out / "work" / "thesis.tex").write_text("not the build's")
+    for clean in (["--clean"], []):
+        r = subprocess.run(["bash", str(repo / "app" / "build_app.sh"), "--out", str(out), *clean], capture_output=True,
+                           text=True)
+        assert r.returncode == 1 and "was not made by build_app.sh" in r.stderr, r.stderr
+        assert (out / "work" / "thesis.tex").read_text() == "not the build's"
+        assert not (out / "work" / ".framescribe-build").exists()
+
+
+# ---- workflow hygiene ----------------------------------------------------------------------------------------------
+
+
+def all_steps(wf: dict) -> list[tuple[str, dict]]:
+    return [(job, s) for job, j in wf["jobs"].items() for s in j["steps"]]
+
+
+def test_no_run_block_holds_an_expression(wf):
+    """Values reach a script through env: only; ${{ }} inside a run: block is pasted into the shell as code."""
+    for job, s in all_steps(wf):
+        assert "${{" not in s.get("run", ""), (job, s.get("name"))
+
+
+def test_no_whole_secrets_context_and_no_continue_on_error(wf):
+    text = WORKFLOW.read_text()
+    assert not re.search(r"toJSON\s*\(\s*secrets", text, re.IGNORECASE)
+    assert not re.search(r"secrets\s*\[", text)  # no dynamic secret lookup
+    assert "continue-on-error" not in text
+    for job in wf["jobs"].values():
+        assert "continue-on-error" not in job
+
+
+def test_no_job_or_workflow_level_env_carries_a_secret(wf):
+    assert "secrets." not in as_text(wf.get("env", {}))
+    for name, job in wf["jobs"].items():
+        assert "secrets." not in as_text(job.get("env", {})), name
+
+
+def test_no_step_dumps_the_environment(wf):
+    dump = re.compile(r"(^|[;&|(]\s*|\bthen\s+|\bdo\s+)(printenv|env|set|export -p|declare -p|compgen -v)\s*($|[;|>&)])",
+                      re.MULTILINE)
+    for job, s in all_steps(wf):
+        run = s.get("run", "")
+        assert "printenv" not in run, (job, s.get("name"))
+        assert not dump.search(run), (job, s.get("name"))
+
+
+def test_the_sign_job_never_traces_its_shell(wf):
+    for s in steps(wf, "sign"):
+        run = s.get("run", "")
+        assert not re.search(r"set\s+-[a-wyz]*x|set -o xtrace|bash\s+-[a-z]*x|BASH_XTRACEFD|shopt -s -o xtrace", run)
+        assert not re.search(r"set\s+-[a-wyz]*v", run), s.get("name")  # verbose echoes every line, secrets included
+        assert "ACTIONS_STEP_DEBUG" not in as_text(s)
+    for script in (SIGN, PREFLIGHT, PACKAGE, CHECK):
+        assert not re.search(r"^\s*set\s+-[a-z]*x", script.read_text(), re.MULTILINE), script.name
+
+
+def command_words(script: str) -> list[str]:
+    """The first word of every simple command in a step's shell text (a rough split on newlines, pipes, ;, && and ||,
+    $( and `then`/`do`/`if`)."""
+    words = []
+    for line in script.replace("\\\n", " ").splitlines():  # continuation lines are one command
+        line = re.sub(r"(^|\s)#.*$", "", line)
+        # a quoted string is one word: keep its first characters (to see a quoted command path), drop separators in it
+        line = re.sub(r'"[^"]*"|\'[^\']*\'', lambda m: re.sub(r"[|;&()!<>\s]", "_", m.group(0)), line)
+        for part in re.split(r"\|\||&&|[|;]|\$\(|<\(|\bthen\b|\bdo\b|\bif\b|\belse\b|\bwhile\b|\bfor\b|!", line):
+            part = part.strip().lstrip("({ ").strip()
+            while re.match(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s", part):  # VAR=value command
+                part = re.sub(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s+", "", part)
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=\S*", part):  # an assignment alone runs nothing
+                continue
+            if part:
+                words.append(part.split()[0])
+    return words
+
+
+def test_the_sign_job_runs_nothing_from_inside_the_bundle(wf):
+    for s in steps(wf, "sign"):
+        for word in command_words(s.get("run", "")):
+            assert "$APP" not in word and "RUNNER_TEMP/app" not in word, (s.get("name"), word)
+            assert not word.startswith(('"$RUNNER_TEMP', "$RUNNER_TEMP")), (s.get("name"), word)
+    for script in (SIGN, PACKAGE, CHECK):
+        for word in command_words(script.read_text()):
+            assert "$APP" not in word and "$app" not in word and "$py" not in word, (script.name, word)
+
+
+def test_the_bundle_is_checked_before_any_secret_and_curl_runs_without_one(wf):
+    names = [s.get("name") for s in steps(wf, "sign")]
+    first_secret = min(i for i, s in enumerate(steps(wf, "sign")) if "secrets." in as_text(s))
+    assert names.index("Check the bundle structure") < first_secret
+    check = step(wf, "sign", "Check the bundle structure")["run"]
+    assert 'app/bundle_check.sh --unpacked "$RUNNER_TEMP/app"' in check
+    assert check.index("bundle_check.sh") < check.index("plutil")  # Info.plist is read only once it passed
+    for s in steps(wf, "sign"):
+        if "curl " in s.get("run", ""):
+            assert "secrets." not in as_text(s.get("env", {})), s.get("name")
+    assert "curl " not in step(wf, "sign", "Import Developer ID certificate")["run"]
+
+
+def test_the_p12_password_never_reaches_a_command_line(wf):
+    run = step(wf, "sign", "Import Developer ID certificate")["run"]
+    lines = [ln for ln in run.splitlines() if "DEVELOPER_ID_P12_PASSWORD" in ln]
+    for ln in lines:
+        stripped = ln.strip()
+        # only the emptiness check, the error text and openssl's -passin env:NAME (the name, not the value)
+        assert ("-passin env:DEVELOPER_ID_P12_PASSWORD" in ln and "$DEVELOPER_ID_P12_PASSWORD" not in ln) \
+            or stripped.startswith("if [[ -z") or stripped.startswith('echo "::error::'), ln
+    assert "-passout env:IMPORT_PASSWORD" in run
+    assert 'security import "$IMPORT_P12" -k "$KEYCHAIN" -P "$IMPORT_PASSWORD"' in run
+    assert 'IMPORT_PASSWORD="$(openssl rand -hex 24)"' in run
+    assert 'rm -f "$IMPORT_P12"' in run and 'rm -f "$P12"' in run
+    assert "rewrap -legacy" in run  # OpenSSL 3 reading an older Keychain Access export, after the plain attempt
+    assert run.index("if ! rewrap 2>/dev/null") < run.index("rewrap -legacy")
+
+
+def test_the_notary_identifiers_are_commented_as_identifiers(wf):
+    run = step(wf, "sign", "Notarize")["run"]
+    assert "identifiers, not secrets" in run
+
+
+def test_the_dry_run_zip_expires_after_one_day(wf):
+    for job, s in all_steps(wf):
+        if s.get("uses", "").startswith("actions/upload-artifact@"):
+            assert s["with"]["retention-days"] == 1, (job, s.get("name"))
+
+
+def test_the_verify_job_runs_the_signed_app_with_no_secret(wf):
+    verify = wf["jobs"]["verify"]
+    assert "environment" not in verify and secret_refs(verify) == set()
+    assert verify["permissions"] == {"contents": "read"}
+    assert "secrets" not in as_text(verify)
+    text = "\n".join(s.get("run", "") for s in verify["steps"])
+    for needed in ("shasum -a 256 -c", "com.apple.quarantine", "spctl --assess --type execute -vv",
+                   "source=Notarized Developer ID", "stapler validate", "codesign --verify --deep --strict",
+                   "devid_team", "entitlement_names app/Support/runtime.entitlements", "-m framescribe --version",
+                   "-m framescribe doctor --json", '{"ffmpeg", "ffprobe", "speech model"}',
+                   "import librosa, numba, llvmlite", "import mlx.core", "@numba.njit", 'bundle_check.sh" --unpacked'):
+        assert needed in text, needed
+    uses = [s["uses"].split("@")[0] for s in verify["steps"] if "uses" in s]
+    assert uses == ["actions/checkout", "actions/download-artifact"]
+
+
+def test_every_new_step_of_the_verify_job_is_valid_python_where_it_is_python(wf):
+    run = step(wf, "verify", "Run the signed runtime")["run"]
+    for block in re.findall(r"run_py -c '\n(.*?)'", run, re.DOTALL):
+        compile(block, "<verify>", "exec")
+
+
+# ---- app/bundle_check.sh, and what sign_app.sh, package_app.sh and preflight_app.sh do with it -------------------
+
+
+def bundle_check(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["bash", str(CHECK), *args], capture_output=True, text=True)
+
+
+def sentinel(tmp_path: Path) -> tuple[Path, str]:
+    victim = tmp_path / "outside" / "victim"
+    victim.parent.mkdir()
+    shutil.copy("/bin/echo", victim)
+    return victim, victim.read_bytes().hex()
+
+
+@macos_only
+def test_a_mach_o_file_named_like_python_bytecode_is_found_and_signed(tmp_path):
+    app = make_unsigned_bundle(tmp_path)
+    stray = app / "Contents" / "Resources" / "runtime" / "lib" / "python3.12" / "stray.pyc"
+    shutil.copy("/bin/echo", stray)
+    subprocess.run(["codesign", "--remove-signature", str(stray)], check=True)
+    r = sign(app, "--hardened")
+    assert r.returncode == 0, r.stderr
+    assert "signed 3 Mach-O files, every one the bundle holds" in r.stdout  # the app, Python and stray.pyc
+    info = subprocess.run(["codesign", "-dv", str(stray)], capture_output=True, text=True).stderr
+    assert "flags=0x10002(adhoc,runtime)" in info
+
+
+@macos_only
+def test_preflight_finds_an_unsigned_mach_o_file_whatever_its_name(tmp_path):
+    app = make_bundle(tmp_path)
+    for name in ("stray.pyc", "stray.pyi", "stray.py", "stray.txt", "stray.json"):
+        f = app / "Contents" / "Resources" / "runtime" / "lib" / "python3.12" / name
+        shutil.copy("/bin/echo", f)
+        subprocess.run(["codesign", "--remove-signature", str(f)], check=True)
+    r = preflight(app, "--allow-adhoc")
+    assert r.returncode == 1
+    # the five strays, and the app's executable, whose bundle seal no longer matches
+    assert "FAIL  signature: 6 of 7 Mach-O files are unsigned or do not verify" in r.stdout
+    for name in ("stray.pyc", "stray.pyi", "stray.py", "stray.json"):  # (the sixth is behind "... and 1 more")
+        assert f"python3.12/{name}\n" in r.stdout
+    assert "PASS  Mach-O files: 7, found by content" in r.stdout
+
+
+@macos_only
+def test_a_path_with_a_newline_is_refused_and_nothing_outside_is_touched(tmp_path):
+    victim, before = sentinel(tmp_path)
+    app = make_unsigned_bundle(tmp_path / "b")
+    # the measured attack: a directory "x\n" holding a path that, split at the newline, names the file outside
+    evil = app / "Contents" / "Resources" / "runtime" / "lib" / ("x\n")
+    target = evil / str(victim.parent).lstrip("/")
+    target.mkdir(parents=True)
+    shutil.copy("/bin/echo", target / "victim")
+    for result in (sign(app, "--hardened"), bundle_check(str(app)),
+                   subprocess.run(["bash", str(PACKAGE), "--out", str(tmp_path / "dist"), str(app)],
+                                  capture_output=True, text=True)):
+        assert result.returncode == 1 and "control character" in result.stderr, result.stderr
+    r = preflight(app, "--allow-adhoc")
+    assert r.returncode == 1 and "FAIL  bundle structure:" in r.stdout and "control character" in r.stdout
+    assert victim.read_bytes().hex() == before
+    assert not (tmp_path / "dist").exists() or not any((tmp_path / "dist").iterdir())
+
+
+@macos_only
+@pytest.mark.parametrize("where", ["Contents/Resources/runtime", "Contents/Resources/runtime/bin", "Contents",
+                                   "Contents/Resources/runtime/bin/python3.12", "Contents/Resources/runtime/lib/python3.12"])
+def test_a_symbolic_link_at_a_fixed_place_is_refused_and_nothing_outside_is_signed(tmp_path, where):
+    """The measured attack: runtime/ a link to a folder outside, whose bin/python3.12 sign_app.sh then signed."""
+    app = make_unsigned_bundle(tmp_path / "b")
+    outside = tmp_path / "outside" / Path(where).name
+    outside.parent.mkdir()
+    shutil.move(str(app / where), str(outside))
+    (app / where).symlink_to(outside)
+    before = {f: f.read_bytes() for f in (tmp_path / "outside").rglob("*") if f.is_file()}
+    assert before
+    r = sign(app, "--hardened")
+    assert r.returncode == 1 and ("is a symbolic link" in r.stderr or "is not a regular file" in r.stderr), r.stderr
+    assert {f: f.read_bytes() for f in (tmp_path / "outside").rglob("*") if f.is_file()} == before
+    assert bundle_check(str(app)).returncode == 1
+    assert preflight(app, "--allow-adhoc").returncode == 1
+
+
+@macos_only
+def test_a_symbolic_link_out_of_the_bundle_is_refused_by_sign_and_package(tmp_path):
+    victim, before = sentinel(tmp_path)
+    app = make_unsigned_bundle(tmp_path / "b")
+    (app / "Contents" / "Resources" / "outside").symlink_to(victim)
+    r = sign(app, "--hardened")
+    assert r.returncode == 1 and "points outside the bundle" in r.stderr
+    r = subprocess.run(["bash", str(PACKAGE), "--out", str(tmp_path / "dist"), str(app)], capture_output=True, text=True)
+    assert r.returncode == 1 and "points outside the bundle" in r.stderr
+    assert victim.read_bytes().hex() == before
+
+
+@macos_only
+@pytest.mark.parametrize(("key", "value", "message"), [
+    ("CFBundleName", "../../escaped", "CFBundleName is not of the form"),
+    ("CFBundleName", "a/b", "CFBundleName is not of the form"),
+    ("CFBundleShortVersionString", "1.0/../../x", "CFBundleShortVersionString is not of the form"),
+    ("CFBundleExecutable", "../../../bin/sh", "CFBundleExecutable is not of the form"),
+    ("CFBundleIdentifier", "org.example.other", "expected io.github.jwiderberg.framescribe"),
+])
+def test_info_plist_values_must_be_plain_names_and_the_identifier_ours(tmp_path, key, value, message):
+    app = make_bundle(tmp_path / "b")
+    write_plist(app, **{key: value})
+    out = tmp_path / "x" / "y" / "dist"
+    r = subprocess.run(["bash", str(PACKAGE), "--out", str(out), str(app)], capture_output=True, text=True)
+    assert r.returncode == 1 and message in r.stderr, r.stderr
+    assert not any(p.suffix == ".zip" for p in tmp_path.rglob("*"))  # nothing written, in --out or anywhere above it
+    assert sign(app, "--hardened").returncode == 1
+    assert bundle_check(str(app)).returncode == 1
+
+
+@macos_only
+def test_a_hard_link_is_refused(tmp_path):
+    victim, before = sentinel(tmp_path)
+    app = make_unsigned_bundle(tmp_path / "b")
+    os.link(victim, app / "Contents" / "Resources" / "linked")
+    r = sign(app, "--hardened")
+    assert r.returncode == 1 and "more than one hard link" in r.stderr
+    assert victim.read_bytes().hex() == before
+
+
+@macos_only
+def test_the_unpacked_artifact_must_be_exactly_one_framescribe_app(tmp_path):
+    good = tmp_path / "good"
+    make_unsigned_bundle(good)
+    assert bundle_check("--unpacked", str(good)).returncode == 0
+    (good / "extra.txt").write_text("x")
+    r = bundle_check("--unpacked", str(good))
+    assert r.returncode == 1 and "exactly one entry" in r.stderr
+    other = tmp_path / "other"
+    app = make_unsigned_bundle(other)
+    app.rename(other / "Other.app")
+    assert bundle_check("--unpacked", str(other)).returncode == 1
+    linked = tmp_path / "linked"
+    linked.mkdir()
+    (linked / "Framescribe.app").symlink_to(tmp_path / "good" / "Framescribe.app")
+    assert bundle_check("--unpacked", str(linked)).returncode == 1
+
+
+def devid_team(info: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["bash", "-c", f'source "{CHECK}"; devid_team'], input=info, capture_output=True, text=True)
+
+
+GOOD_CHAIN = """Executable=/x
+Identifier=io.github.jwiderberg.framescribe
+Authority=Developer ID Application: Example Person (ABCDE12345)
+Authority=Developer ID Certification Authority
+Authority=Apple Root CA
+Timestamp=1 Jan 2026 at 10:00:00
+TeamIdentifier=ABCDE12345
+"""
+
+
+@pytest.mark.parametrize(("info", "team"), [
+    (GOOD_CHAIN, "ABCDE12345"),
+    (GOOD_CHAIN.replace("TeamIdentifier=ABCDE12345", "TeamIdentifier=ZZZZZ99999"), None),  # leaf and team differ
+    (GOOD_CHAIN.replace("Authority=Apple Root CA\n", ""), None),  # chain cut short
+    (GOOD_CHAIN.replace("Developer ID Certification Authority", "Apple Worldwide Developer Relations"), None),
+    (GOOD_CHAIN.replace("Developer ID Application:", "Apple Development:"), None),  # a development certificate
+    (GOOD_CHAIN.replace("Authority=Apple Root CA", "Authority=Apple Root CA\nAuthority=Extra"), None),
+    ("Signature=adhoc\nTeamIdentifier=not set\n", None),
+])
+def test_the_team_id_comes_from_the_developer_id_authority_chain(info, team):
+    r = devid_team(info)
+    assert (r.stdout.strip() or None) == team and (r.returncode == 0) is (team is not None)
+
+
+@macos_only
+def test_the_two_mach_o_enumerations_agree_and_the_structure_passes_on_a_good_bundle(tmp_path):
+    app = make_bundle(tmp_path)
+    r = bundle_check(str(app))
+    assert r.returncode == 0 and "(2 Mach-O files)" in r.stdout, r.stderr
+
+
+@macos_only
+def test_preflight_refuses_entitlements_on_any_mach_o_file_but_the_python(tmp_path):
+    """v12's extra-ent-exe case: a helper executable signed with disable-library-validation passed the old preflight."""
+    app = make_bundle(tmp_path)
+    ent = tmp_path / "e.plist"
+    ent.write_text('<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>com.apple.security.cs.'
+                   'disable-library-validation</key><true/></dict></plist>')
+    tool = app / "Contents" / "Resources" / "tool2"
+    shutil.copy("/bin/echo", tool)
+    subprocess.run(["codesign", "--force", "--sign", "-", "--options", "runtime", "--entitlements", str(ent), str(tool)],
+                   check=True, capture_output=True)
+    subprocess.run(["codesign", "--force", "--sign", "-", "--options", "runtime", "--timestamp=none", str(app)],
+                   check=True, capture_output=True)
+    r = preflight(app, "--allow-adhoc")
+    assert r.returncode == 1 and "FAIL  entitlements: 1 Mach-O files other than runtime/bin/python3.12 carry some" in r.stdout

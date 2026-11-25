@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Puts the signing and notarization secrets that .github/workflows/release.yml needs into the GitHub environment
-# "release" of the repository, with `gh secret set --env`. The environment must exist already (docs/RELEASING.md:
-# create it first, with a required reviewer and deployments limited to tags v*). docs/RELEASING.md also says how to get
-# the two files.
+# "release" of the repository, with `gh secret set --env`. The environment must exist already, with at least one
+# required reviewer and deployments limited to tags (docs/RELEASING.md says how to check it, and how to get the two
+# files).
 #
 #   scripts/release-secrets.sh --p12 DeveloperID.p12 --p8 AuthKey_KEYID.p8 --key-id KEYID --issuer ISSUER-UUID
 #
@@ -12,11 +12,14 @@
 #   --issuer UUID   the Issuer ID shown above the keys in App Store Connect
 #   --repo O/NAME   the repository (default: the one gh resolves for this clone, or origin's in a dry run)
 #   --env NAME      the environment that holds the secrets (default: release, the one the workflow's sign job uses)
-#   --dry-run       check everything and say what would be set, set nothing and do not call gh at all
+#   --dry-run       check everything (the environment's protection too, with read-only GitHub API calls) and say
+#                   what would be set; set nothing
 #
-# It asks for the .p12 password without echo, checks that the .p12 opens with it and holds a Developer ID
-# Application certificate (issued by Apple's Developer ID CA, not expired) and a private key, and that the .p8 looks
-# like a private key, and that the environment exists. Then it sets five environment secrets: DEVELOPER_ID_P12_BASE64,
+# It checks that the .p8 parses as an EC private key, that the environment exists, has at least one required
+# reviewer and admits deployments from tags only (read with `gh api`, before anything is set), asks for the .p12
+# password without echo, and checks that the .p12 opens with it and holds a Developer ID Application certificate
+# (issued by Apple's Developer ID CA, not expired) and a private key. Then it sets five environment secrets:
+# DEVELOPER_ID_P12_BASE64,
 # DEVELOPER_ID_P12_PASSWORD, NOTARY_KEY_P8_BASE64, NOTARY_KEY_ID, NOTARY_ISSUER_ID. Every value goes to gh on standard
 # input, never as an argument, and nothing secret is printed.
 set -euo pipefail
@@ -48,24 +51,18 @@ main() {
     [[ "$key_id" =~ ^[A-Z0-9]{10}$ ]] || fail "--key-id must be the 10-character Key ID shown next to the key"
     [[ "$issuer" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] \
         || fail "--issuer must be the Issuer ID (a UUID, shown above the list of keys)"
-    grep -q -- '-----BEGIN PRIVATE KEY-----' "$p8" && grep -q -- '-----END PRIVATE KEY-----' "$p8" \
-        || fail "$p8 does not look like an App Store Connect API key (no PRIVATE KEY block)"
     command -v openssl >/dev/null || fail "openssl not found"
+    check_p8 "$p8"
 
-    if [[ $dry_run -eq 1 ]]; then
-        [[ -n "$repo" ]] || repo="$(origin_repo)"
-        [[ -n "$repo" ]] || repo="(the repository gh would resolve)"
-    else
-        command -v gh >/dev/null || fail "gh (GitHub CLI) is not installed"
-        gh auth status >/dev/null 2>&1 || fail "gh is not logged in (gh auth login)"
-        if [[ -z "$repo" ]]; then
-            repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
-            [[ -n "$repo" ]] || fail "could not tell the repository; pass --repo owner/name"
-        fi
-        # gh secret set --env would fail too, but with a less helpful message
-        gh api "repos/$repo/environments/$env" --silent >/dev/null 2>&1 \
-            || fail "the environment \"$env\" does not exist in $repo (or gh may not see it). Create it first: repository Settings > Environments > New environment \"$env\", see docs/RELEASING.md"
+    command -v gh >/dev/null || fail "gh (GitHub CLI) is not installed (a dry run needs it too, to read the environment's protection)"
+    gh auth status >/dev/null 2>&1 || fail "gh is not logged in (gh auth login)"
+    if [[ -z "$repo" ]]; then
+        if [[ $dry_run -eq 1 ]]; then repo="$(origin_repo)"; fi
+        [[ -n "$repo" ]] || repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)"
+        [[ -n "$repo" ]] || fail "could not tell the repository; pass --repo owner/name"
     fi
+    # read-only: GET requests only, in a dry run as in a real one, before anything is set
+    check_environment "$repo" "$env"
 
     # read without echo, never printed; it opens the .p12 below and becomes a secret itself
     local password=""
@@ -89,7 +86,7 @@ main() {
 
     printf '\n'
     if [[ $dry_run -eq 1 ]]; then
-        printf 'Dry run: nothing was set and gh was not called.\n'
+        printf 'Dry run: nothing was set (gh only read the environment).\n'
     else
         printf 'Done. GitHub holds the values now. Delete the exported files, or move them somewhere offline:\n'
         printf '  rm -P %q %q\n' "$p12" "$p8"
@@ -98,9 +95,40 @@ main() {
         printf 'If the five secrets were ever set at repository level, delete those copies:\n'
         printf '  gh secret list --repo %s\n' "$repo"
         printf '  for s in DEVELOPER_ID_P12_BASE64 DEVELOPER_ID_P12_PASSWORD NOTARY_KEY_P8_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID; do gh secret delete "$s" --repo %s; done\n' "$repo"
-        printf 'Test the pipeline without publishing (on a ref the environment admits, see docs/RELEASING.md):\n'
-        printf '  gh workflow run release.yml --repo %s --ref vVERSION -f dry_run=true\n' "$repo"
+        printf 'Test the pipeline without publishing, on a dry-run tag (docs/RELEASING.md, Dry run):\n'
+        printf '  git tag vVERSION-dry1 && git push origin vVERSION-dry1\n'
+        printf '  gh workflow run release.yml --repo %s --ref vVERSION-dry1 -f dry_run=true\n' "$repo"
     fi
+}
+
+check_p8() {  # the App Store Connect API key: a PKCS#8 file that parses as an EC private key
+    local p8="$1"
+    openssl pkey -in "$p8" -noout >/dev/null 2>&1 \
+        || fail "$p8 is not an App Store Connect API key: it does not parse as a private key"
+    openssl asn1parse -in "$p8" 2>/dev/null | grep -q ':id-ecPublicKey' \
+        || fail "$p8 is not an App Store Connect API key: it is not an EC private key"
+}
+
+# check_environment REPO ENV: the environment exists, has at least one required reviewer and admits deployments
+# from tags only (custom deployment policies, every one of type tag). Read with GET requests; prints what it found.
+check_environment() {
+    local repo="$1" env="$2" rules policies reviewers custom protected
+    rules="$(gh api "repos/$repo/environments/$env" --jq '"reviewers=\([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers | length] | add // 0) custom=\(.deployment_branch_policy.custom_branch_policies // false) protected=\(.deployment_branch_policy.protected_branches // false)"' 2>/dev/null)" \
+        || fail "the environment \"$env\" does not exist in $repo (or gh may not see it). Create it first: repository Settings > Environments > New environment \"$env\", see docs/RELEASING.md"
+    reviewers="$(sed -nE 's/.*reviewers=([0-9]+).*/\1/p' <<< "$rules")"
+    custom="$(sed -nE 's/.*custom=([a-z]+).*/\1/p' <<< "$rules")"
+    protected="$(sed -nE 's/.*protected=([a-z]+).*/\1/p' <<< "$rules")"
+    policies="$(gh api "repos/$repo/environments/$env/deployment-branch-policies" --jq '[.branch_policies[]? | "\(.type):\(.name)"] | join(" ")' 2>/dev/null || true)"
+    printf 'Environment %s: %s required reviewer(s), deployment policies: %s\n' "$env" "${reviewers:-0}" "${policies:-none}"
+    local fix="repository Settings > Environments > $env: tick Required reviewers and add yourself; under Deployment branches and tags choose Selected branches and tags and add one rule, Ref type Tag, v* (no branch rule). See docs/RELEASING.md"
+    [[ "${reviewers:-0}" -ge 1 ]] || fail "the environment \"$env\" has no required reviewer. Fix: $fix"
+    [[ "$custom" == "true" && "$protected" == "false" && -n "$policies" ]] \
+        || fail "the environment \"$env\" does not limit deployments to selected tags. Fix: $fix"
+    local p list=()
+    read -r -a list <<< "$policies"  # no glob expansion of a rule such as v*
+    for p in "${list[@]}"; do
+        [[ "$p" == tag:* ]] || fail "the environment \"$env\" admits deployments from a branch ($p), not only from tags. Fix: $fix"
+    done
 }
 
 origin_repo() {  # owner/name of origin when it is on github.com, from the local git configuration only
