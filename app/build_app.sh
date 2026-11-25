@@ -6,12 +6,24 @@
 #   app/build_app.sh --out DIR            put the app and its work files in DIR instead of app/build
 #   app/build_app.sh --min-macos VERSION  the oldest macOS the app is for (default 15.0): the wheels are chosen for it,
 #                                         every Mach-O file is checked against it, Info.plist declares it
-#   app/build_app.sh --clean              remove the output folder and app/.build first
+#   app/build_app.sh --clean              remove what earlier builds made first: the app, the zips, the work
+#                                         folder in the output folder and app/.build (nothing else in it)
+#   app/build_app.sh --hardened           sign ad hoc, but with the hardened runtime and the release entitlements plus
+#                                         disable-library-validation (an ad-hoc signature has no Team ID), then run
+#                                         app/preflight_app.sh --allow-adhoc on it: tests locally what a Developer ID
+#                                         build runs with (no secure timestamp: ad hoc has none)
 #   app/build_app.sh --sign "Developer ID Application: NAME (TEAMID)"
-#                                         sign with that identity and the hardened runtime instead of ad hoc
+#                                         sign with that identity, the hardened runtime and a secure timestamp instead
+#                                         of ad hoc (app/sign_app.sh, which the release workflow also uses), then run
+#                                         the signed runtime once and app/preflight_app.sh (fails on any error)
+#   app/build_app.sh --sign "..." --keychain PATH
+#                                         look for the identity in that keychain only (the release workflow's
+#                                         throwaway keychain)
 #   app/build_app.sh --sign "..." --notarize PROFILE
 #                                         then notarize with `xcrun notarytool` (a keychain profile made with
 #                                         `xcrun notarytool store-credentials PROFILE`) and staple the ticket
+#   app/build_app.sh --zip                then write Framescribe-VERSION.zip and its .sha256 next to the app
+#                                         (app/package_app.sh, after notarizing when --notarize is given)
 #
 # Downloads: a standalone CPython 3.12 build (uv python install) and the locked wheels (uv pip install), both through
 # uv and its cache. Writes only to the output folder (app/build), app/.build (Swift) and uv's cache.
@@ -21,7 +33,8 @@
 set -euo pipefail
 
 main() {
-    local clean=0 identity="-" profile="" out=""
+    local clean=0 profile="" out="" zip=0
+    identity="-" keychain="" HARDENED=0
     MIN_MACOS="15.0"
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -29,14 +42,19 @@ main() {
             --out) [[ $# -ge 2 ]] || die "--out needs a folder"; out="$2"; shift ;;
             --min-macos) [[ $# -ge 2 && "$2" =~ ^[0-9]+\.[0-9]+$ ]] || die "--min-macos needs a version like 15.0"
                 MIN_MACOS="$2"; shift ;;
-            --sign) [[ $# -ge 2 ]] || die "--sign needs an identity"; identity="$2"; shift ;;
+            --hardened) HARDENED=1 ;;
+            --sign) [[ $# -ge 2 && -n "$2" ]] || die "--sign needs an identity"; identity="$2"; shift ;;
+            --keychain) [[ $# -ge 2 && -f "$2" ]] || die "--keychain needs the path of a keychain file"; keychain="$2"; shift ;;
             --notarize) [[ $# -ge 2 ]] || die "--notarize needs a notarytool keychain profile"; profile="$2"; shift ;;
+            --zip) zip=1 ;;
             -h|--help) sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
             *) die "unknown option: $1 (see --help)" ;;
         esac
         shift
     done
+    if [[ "$identity" != "-" ]]; then HARDENED=1; fi
     if [[ -n "$profile" && "$identity" == "-" ]]; then die "--notarize needs --sign with a Developer ID identity"; fi
+    if [[ -n "$keychain" && "$identity" == "-" ]]; then die "--keychain needs --sign"; fi
 
     APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     REPO="$(dirname "$APP_DIR")"
@@ -48,8 +66,10 @@ main() {
 
     check_tools
     if [[ $clean -eq 1 ]]; then
-        step "clean: removing $BUILD and $APP_DIR/.build"
-        rm -rf "$BUILD" "$APP_DIR/.build"
+        # only what this script makes, never the folder itself: --out may name any folder, even the checkout
+        step "clean: removing $WORK, $APP, the zips next to it and $APP_DIR/.build"
+        rm -rf "$WORK" "$APP" "$APP_DIR/.build"
+        rm -f "$BUILD"/Framescribe-*.zip "$BUILD"/Framescribe-*.zip.sha256
     fi
     mkdir -p "$WORK"
     VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$REPO/pyproject.toml" | head -1)"
@@ -62,7 +82,12 @@ main() {
     assemble_bundle
     check_min_macos
     sign_bundle
+    if [[ $HARDENED -eq 1 ]]; then preflight; fi
     if [[ -n "$profile" ]]; then notarize "$profile"; fi
+    if [[ $zip -eq 1 ]]; then
+        step "zip (app/package_app.sh)"
+        "$APP_DIR/package_app.sh" --out "$BUILD" "$APP" | sed 's/^/    /'
+    fi
     report
 }
 
@@ -332,53 +357,67 @@ check_min_macos() {
 
 # ---- signing --------------------------------------------------------------------------------------------------------
 
-codesign_quiet() {  # codesign, counting its "replacing existing signature" lines instead of printing each
-    local errs="$WORK/codesign.err" rc=0
-    codesign "$@" 2> "$errs" || rc=$?
-    REPLACED=$((REPLACED + $(grep -c 'replacing existing signature' "$errs" || true)))
-    grep -v 'replacing existing signature' "$errs" >&2 || true
-    return $rc
+sign_bundle() {
+    # one code path for every kind of signing: app/sign_app.sh (the release workflow calls it on its own)
+    local args=()
+    if [[ "$identity" != "-" ]]; then args+=(--identity "$identity"); elif [[ $HARDENED -eq 1 ]]; then args+=(--hardened); fi
+    if [[ -n "$keychain" ]]; then args+=(--keychain "$keychain"); fi
+    step "sign (app/sign_app.sh${args[*]+ ${args[*]}})"
+    "$APP_DIR/sign_app.sh" ${args[@]+"${args[@]}"} "$APP" | sed 's/^/    /'
 }
 
-sign_bundle() {
-    local runtime_args=(--force --sign "$identity") app_args=(--force --sign "$identity")
-    if [[ "$identity" == "-" ]]; then
-        step "sign ad hoc, inside out"
-    else
-        step "sign with \"$identity\" and the hardened runtime, inside out"
-        runtime_args+=(--options runtime --timestamp)
-        app_args+=(--options runtime --timestamp)
+check_signed_runtime() {
+    # the same imports as the check before signing, now under the hardened runtime, the entitlements and (with a
+    # Developer ID) library validation: every extension module the tool uses is loaded, and numba compiles and runs a
+    # function, which needs executable memory. A missing entitlement ends the process with SIGKILL.
+    step "check: the signed runtime imports framescribe and runs numba-compiled code"
+    local tmp
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/framescribe-check.XXXXXX")"
+    if ! env -i HOME="$HOME" TMPDIR="$tmp" PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 NUMBA_CACHE_DIR="$tmp" \
+        "$APP/Contents/Resources/runtime/bin/python$PY_SERIES" -I -B -c '
+import framescribe.cli, framescribe.pipeline, framescribe_app_launcher, Vision, Quartz, mlx.core, cv2, numpy, scipy
+import parakeet_mlx, librosa, numba
+@numba.njit
+def total(n):
+    t = 0
+    for i in range(n):
+        t += i
+    return t
+assert total(1000) == 499500
+print("    imports ok, numba ok")'; then
+        rm -rf "$tmp"
+        die "the signed runtime does not start (status above; a SIGKILL means a missing entitlement)"
     fi
-    local rt="$APP/Contents/Resources/runtime" list="$WORK/macho.txt"
-    # every Mach-O file of the runtime (extension modules, libraries), the Python executable last
-    find "$rt" -type f ! -name '*.py' ! -name '*.pyc' ! -name '*.txt' ! -name '*.json' -print0 \
-        | xargs -0 file --no-pad | grep -E ': +Mach-O' | sed 's/: *Mach-O.*$//' \
-        | grep -v "/bin/python$PY_SERIES\$" > "$list" || true
-    note "$(wc -l < "$list" | tr -d ' ') libraries and extension modules"
-    REPLACED=0
-    local -a batch=()
-    while IFS= read -r f; do
-        batch+=("$f")
-        if [[ ${#batch[@]} -ge 64 ]]; then codesign_quiet "${runtime_args[@]}" "${batch[@]}"; batch=(); fi
-    done < "$list"
-    if [[ ${#batch[@]} -gt 0 ]]; then codesign_quiet "${runtime_args[@]}" "${batch[@]}"; fi
-    if [[ "$identity" == "-" ]]; then
-        codesign_quiet "${runtime_args[@]}" "$rt/bin/python$PY_SERIES"
-    else
-        codesign_quiet "${runtime_args[@]}" --entitlements "$APP_DIR/Support/runtime.entitlements" "$rt/bin/python$PY_SERIES"
-    fi
-    codesign_quiet "${app_args[@]}" "$APP"
-    if [[ $REPLACED -gt 0 ]]; then note "replaced the existing signature of $REPLACED files"; fi
-    step "codesign --verify --deep --strict"
-    codesign --verify --deep --strict --verbose=1 "$APP" 2>&1 | sed 's/^/    /'
+    rm -rf "$tmp"
+    codesign --verify --deep --strict "$APP" || die "running the signed runtime changed the bundle"
+}
+
+preflight() {
+    check_signed_runtime
+    local mode=()
+    if [[ "$identity" == "-" ]]; then mode=(--allow-adhoc); fi
+    step "preflight: what notarization checks (app/preflight_app.sh ${mode[*]:-})"
+    "$APP_DIR/preflight_app.sh" ${mode[@]+"${mode[@]}"} "$APP" | sed 's/^/    /' \
+        || die "the signed bundle fails the preflight (see above)"
 }
 
 notarize() {
-    local zip="$BUILD/Framescribe-$VERSION.zip"
+    local zip="$WORK/notarize-upload.zip" out="$WORK/notarize.json" status
     step "notarize with profile $1"
+    rm -f "$zip"
     ditto -c -k --keepParent "$APP" "$zip"
-    xcrun notarytool submit "$zip" --keychain-profile "$1" --wait
+    xcrun notarytool submit "$zip" --keychain-profile "$1" --wait --output-format json > "$out" || true
+    status="$(plutil -extract status raw -o - "$out" 2>/dev/null || true)"
+    if [[ "$status" != "Accepted" ]]; then
+        cat "$out" >&2
+        local id
+        id="$(plutil -extract id raw -o - "$out" 2>/dev/null || true)"
+        if [[ -n "$id" ]]; then xcrun notarytool log "$id" --keychain-profile "$1" >&2 || true; fi
+        die "notarization status: ${status:-unknown}"
+    fi
+    rm -f "$zip"
     xcrun stapler staple "$APP"
+    xcrun stapler validate "$APP"
     spctl --assess --type execute --verbose=2 "$APP"
 }
 

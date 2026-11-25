@@ -1,15 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!--
-  Used only with `build_app.sh --sign IDENTITY`, which turns on the hardened runtime for notarization. Applied to the
-  embedded Python executable: Python's ctypes and libffi (used by pyobjc for Apple Vision) write closures into memory
-  they then execute, and the extension modules are loaded from inside the bundle. Ad-hoc builds use no entitlements.
--->
 <plist version="1.0">
 <dict>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-    <true/>
-    <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
 </dict>
 </plist>
