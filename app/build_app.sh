@@ -7,7 +7,10 @@
 #   app/build_app.sh --min-macos VERSION  the oldest macOS the app is for (default 15.0): the wheels are chosen for it,
 #                                         every Mach-O file is checked against it, Info.plist declares it
 #   app/build_app.sh --clean              remove what earlier builds made first: the app, the zips, the work
-#                                         folder in the output folder and app/.build (nothing else in it)
+#                                         folder in the output folder and app/.build (nothing else in it). A work
+#                                         folder counts as the build's only when it holds the marker file
+#                                         .framescribe-build (or runtime.stamp, from older builds) or is empty;
+#                                         the build refuses to touch any other
 #   app/build_app.sh --hardened           sign ad hoc, but with the hardened runtime and the release entitlements plus
 #                                         disable-library-validation (an ad-hoc signature has no Team ID), then run
 #                                         app/preflight_app.sh --allow-adhoc on it: tests locally what a Developer ID
@@ -31,6 +34,10 @@
 # Why 15.0: opencv-python-headless 5.1.0.95 (uv.lock) has wheels for macOS 15.0 and later only; every other locked
 # package has one for 14.0. The build fails if a binary needs a newer macOS than the declared one.
 set -euo pipefail
+
+# shellcheck source=app/bundle_check.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/bundle_check.sh"
+WORK_MARKER=".framescribe-build"
 
 main() {
     local clean=0 profile="" out="" zip=0
@@ -65,6 +72,7 @@ main() {
     PY_SERIES="3.12"
 
     check_tools
+    check_work_folder
     if [[ $clean -eq 1 ]]; then
         # only what this script makes, never the folder itself: --out may name any folder, even the checkout
         step "clean: removing $WORK, $APP, the zips next to it and $APP_DIR/.build"
@@ -72,6 +80,7 @@ main() {
         rm -f "$BUILD"/Framescribe-*.zip "$BUILD"/Framescribe-*.zip.sha256
     fi
     mkdir -p "$WORK"
+    : > "$WORK/$WORK_MARKER"
     VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$REPO/pyproject.toml" | head -1)"
     [[ -n "$VERSION" ]] || die "no version in pyproject.toml"
     step "framescribe $VERSION"
@@ -94,6 +103,17 @@ main() {
 step() { printf '==> %s\n' "$*"; }
 note() { printf '    %s\n' "$*"; }
 die() { printf 'build_app.sh: %s\n' "$*" >&2; exit 1; }
+
+check_work_folder() {
+    # the work folder is this script's only when an earlier run marked it (runtime.stamp: before the marker
+    # existed) or it is empty; any other folder of that name is left alone, with or without --clean
+    if [[ -L "$WORK" ]]; then die "$WORK is a symbolic link; refusing to build into it"; fi
+    if [[ -e "$WORK" && ! -d "$WORK" ]]; then die "$WORK exists and is not a folder; refusing to build into it"; fi
+    if [[ -d "$WORK" && ! -f "$WORK/$WORK_MARKER" && ! -f "$WORK/runtime.stamp" ]] \
+        && [[ -n "$(find "$WORK" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+        die "$WORK was not made by build_app.sh (no $WORK_MARKER in it); move it away or choose another --out"
+    fi
+}
 
 check_tools() {
     [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]] || die "needs macOS on Apple Silicon (arm64)"
@@ -328,9 +348,9 @@ version_number() {  # 15.0 -> 150000, 10.9.5 -> 100905
     echo $(( ${a:-0} * 10000 + ${b:-0} * 100 + ${c:-0} ))
 }
 
-macho_files() {  # every Mach-O file of the bundle, one per line
-    find "$APP/Contents" -type f ! -name '*.py' ! -name '*.pyc' ! -name '*.pyi' ! -name '*.txt' ! -name '*.json' \
-        -print0 | xargs -0 file --no-pad | grep -E ': +Mach-O' | sed 's/: *Mach-O.*$//' || true
+macho_files() {  # every Mach-O file of the bundle, one per line, found by content (app/bundle_check.sh)
+    check_bundle_enumerable "$APP" || die "the assembled bundle fails the structure check: $BUNDLE_PROBLEM"
+    macho_by_magic "$APP"
 }
 
 check_min_macos() {

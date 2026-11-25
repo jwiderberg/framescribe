@@ -5,8 +5,16 @@
 #
 #   app/package_app.sh [--out DIR] APP     DIR defaults to the folder that holds APP
 #
+# The bundle must pass app/bundle_check.sh first (no symbolic link at its fixed places, no control character in a
+# path, every link inside it, CFBundleName and the version plain names), so the zip's name comes from checked values
+# only and is written inside DIR.
+#
 # Prints the zip's path, its size and its SHA-256.
 set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=app/bundle_check.sh
+source "$HERE/bundle_check.sh"
 
 die() { printf 'package_app.sh: %s\n' "$*" >&2; exit 1; }
 
@@ -21,8 +29,9 @@ main() {
         esac
         shift
     done
-    [[ -n "$app" && -f "$app/Contents/Info.plist" ]] || die "usage: package_app.sh [--out DIR] APP (an app bundle)"
-    app="$(cd "$app" && pwd)"
+    [[ -n "$app" ]] || die "usage: package_app.sh [--out DIR] APP (an app bundle)"
+    app="$(physical_bundle "$app")" || die "$BUNDLE_PROBLEM"
+    check_bundle "$app" || die "refused, nothing was written: $BUNDLE_PROBLEM"
     [[ -n "$out" ]] || out="$(dirname "$app")"
     mkdir -p "$out"
     out="$(cd "$out" && pwd)"
@@ -31,7 +40,10 @@ main() {
     version="$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")"
     name="$(plutil -extract CFBundleName raw -o - "$app/Contents/Info.plist")"
     [[ "$version" =~ ^[0-9]+(\.[0-9]+)*([a-z0-9.+-]*)$ ]] || die "unexpected version in Info.plist: $version"
+    # both checked by check_bundle against ^[A-Za-z0-9][A-Za-z0-9._-]*$: a plain file name, no slash
+    [[ "$name" =~ $PLIST_VALUE_PATTERN && "$version" =~ $PLIST_VALUE_PATTERN ]] || die "unexpected CFBundleName or version"
     zip="$name-$version.zip"
+    [[ "$zip" != */* ]] || die "unexpected zip name: $zip"
     rm -f "$out/$zip" "$out/$zip.sha256"
     # --keepParent: the archive holds Framescribe.app itself, not its contents
     ditto -c -k --keepParent "$app" "$out/$zip"

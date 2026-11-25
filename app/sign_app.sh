@@ -2,7 +2,13 @@
 # Signs a built Framescribe.app inside out: every Mach-O file of the embedded runtime (extension modules, libraries),
 # then the runtime's Python executable with its entitlements, then the app. Works on any finished bundle, so the same
 # code signs a local build (build_app.sh calls it) and, in the release workflow, a bundle built by another job.
-# Runs nothing from the bundle and needs only codesign, find and file.
+# Runs nothing from the bundle and needs only codesign, find, file, plutil and realpath.
+#
+# Before anything is signed the bundle passes app/bundle_check.sh (the same function the release workflow runs on the
+# unpacked artifact): it is a real Framescribe.app with no symbolic link at its fixed places, no path with a control
+# character, every link resolving inside it and plain Info.plist values. Mach-O files are found by their content
+# (every regular file, whatever its name), by two independent methods that must agree, and only regular files at
+# physical paths inside the bundle are signed: no symbolic link is ever followed.
 #
 #   app/sign_app.sh APP                       ad hoc, no hardened runtime, no entitlements (the default local build)
 #   app/sign_app.sh --hardened APP            ad hoc with the hardened runtime, no timestamp (ad hoc has none), the
@@ -22,6 +28,10 @@
 # every file with one Team ID and needs no such exception. docs/DESIGN.md (Release) has the measurements.
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=app/bundle_check.sh
+source "$HERE/bundle_check.sh"
+
 die() { printf 'sign_app.sh: %s\n' "$*" >&2; exit 1; }
 note() { printf '%s\n' "$*"; }
 
@@ -39,12 +49,12 @@ main() {
         esac
         shift
     done
-    [[ -n "$app" && -f "$app/Contents/Info.plist" ]] || die "usage: sign_app.sh [options] APP (see --help)"
-    APP="$(cd "$app" && pwd)"
+    [[ -n "$app" ]] || die "usage: sign_app.sh [options] APP (see --help)"
+    APP="$(physical_bundle "$app")" || die "$BUNDLE_PROBLEM"
+    check_bundle "$APP" || die "refused, nothing was signed: $BUNDLE_PROBLEM"
     local support py
-    support="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/Support"
-    py="$(find "$APP/Contents/Resources/runtime/bin" -maxdepth 1 -type f -name 'python3.*' | head -1)"
-    [[ -n "$py" ]] || die "no runtime/bin/python3.* in $APP"
+    support="$HERE/Support"
+    py="$APP/$RUNTIME_PYTHON"  # a regular file: check_bundle checked it
     if [[ "$identity" != "-" ]]; then hardened=1; fi
     if [[ -n "$keychain" && "$identity" == "-" ]]; then die "--keychain needs --identity"; fi
     if [[ -n "$entitlements" && $hardened -eq 0 ]]; then die "--entitlements needs --hardened or --identity"; fi
@@ -64,31 +74,52 @@ main() {
         [[ -n "$entitlements" ]] || entitlements="$support/runtime.entitlements"
     fi
 
-    LIST="$(mktemp "${TMPDIR:-/tmp}/framescribe-sign.XXXXXX")"
-    ERRS="$(mktemp "${TMPDIR:-/tmp}/framescribe-sign.XXXXXX")"
-    trap 'rm -f "$LIST" "$ERRS"' EXIT
-    local list="$LIST" errs="$ERRS"
-    # every Mach-O file of the runtime (extension modules, libraries), the Python executable last
-    find "$APP/Contents/Resources/runtime" -type f ! -name '*.py' ! -name '*.pyc' ! -name '*.txt' ! -name '*.json' -print0 \
-        | xargs -0 file --no-pad | grep -E ': +Mach-O' | grep -v ' (for architecture ' | sed 's/: *Mach-O.*$//' \
-        | grep -vxF "$py" > "$list" || true
-    note "$(wc -l < "$list" | tr -d ' ') libraries and extension modules"
+    TMPD="$(mktemp -d "${TMPDIR:-/tmp}/framescribe-sign.XXXXXX")"
+    trap 'rm -rf "$TMPD"' EXIT
+    local all="$TMPD/macho.txt" second="$TMPD/macho-file.txt" list="$TMPD/inner.txt" errs="$TMPD/errs.txt"
+    local main_exe
+    main_exe="$APP/Contents/MacOS/$(plutil -extract CFBundleExecutable raw -o - "$APP/Contents/Info.plist")"
+    # every Mach-O file anywhere in the bundle, by content; then the same by an independent method
+    macho_by_magic "$APP" | LC_ALL=C sort > "$all"
+    macho_by_file "$APP" | LC_ALL=C sort > "$second"
+    if ! cmp -s "$all" "$second"; then
+        diff "$all" "$second" | sed "s|$APP/||" | head -10 >&2 || true
+        die "refused, nothing was signed: the two ways of finding Mach-O files disagree (above)"
+    fi
+    grep -qxF "$py" "$all" || die "refused, nothing was signed: $RUNTIME_PYTHON is not a Mach-O file"
+    # inside out: every other Mach-O file (extension modules, libraries, helper executables), then the Python
+    # executable with its entitlements, then the app (which signs its main executable)
+    grep -vxF -e "$py" -e "$main_exe" "$all" > "$list" || true
+    local n_all n_inner
+    n_all="$(wc -l < "$all" | tr -d ' ')"
+    n_inner="$(wc -l < "$list" | tr -d ' ')"
+    note "$n_inner libraries, extension modules and other Mach-O files"
     REPLACED=0
+    SIGNED=0
     local -a batch=()
     local f
     while IFS= read -r f; do
+        [[ -f "$f" && ! -L "$f" && "$f" == "$APP"/* ]] || die "not a regular file inside the bundle: $f"
         batch+=("$f")
-        if [[ ${#batch[@]} -ge 64 ]]; then codesign_quiet "$errs" "${args[@]}" "${batch[@]}"; batch=(); fi
+        if [[ ${#batch[@]} -ge 64 ]]; then codesign_quiet "$errs" "${args[@]}" "${batch[@]}"; SIGNED=$((SIGNED + ${#batch[@]})); batch=(); fi
     done < "$list"
-    if [[ ${#batch[@]} -gt 0 ]]; then codesign_quiet "$errs" "${args[@]}" "${batch[@]}"; fi
+    if [[ ${#batch[@]} -gt 0 ]]; then codesign_quiet "$errs" "${args[@]}" "${batch[@]}"; SIGNED=$((SIGNED + ${#batch[@]})); fi
     if [[ -n "$entitlements" ]]; then
         note "entitlements of ${py#"$APP"/}: $(basename "$entitlements")"
         codesign_quiet "$errs" "${args[@]}" --entitlements "$entitlements" "$py"
     else
         codesign_quiet "$errs" "${args[@]}" "$py"
     fi
+    SIGNED=$((SIGNED + 1))
     codesign_quiet "$errs" "${args[@]}" "$APP"
+    if [[ -f "$main_exe" ]] && grep -qxF "$main_exe" "$all"; then SIGNED=$((SIGNED + 1)); fi
     if [[ $REPLACED -gt 0 ]]; then note "replaced the existing signature of $REPLACED files"; fi
+    # the count signed must be the count an independent enumeration of the signed bundle finds
+    local after
+    after="$(macho_by_file "$APP" | grep -c . || true)"
+    [[ $SIGNED -eq $n_all && $after -eq $n_all ]] \
+        || die "signed $SIGNED Mach-O files, but the bundle holds $after (found $n_all before signing)"
+    note "signed $SIGNED Mach-O files, every one the bundle holds"
     note "codesign --verify --deep --strict"
     codesign --verify --deep --strict --verbose=1 "$APP" 2>&1 | sed 's/^/  /'
 }
