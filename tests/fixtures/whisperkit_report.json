@@ -1,0 +1,480 @@
+{
+ "text": "The baker lit the oven before dawn. Flour drifted across the narrow counter like fine snow. She counted twelve loaves, then six more. A cold wind rattled the shutters all morning. Nobody remembered where the spare scale went. Cinnamon and burnt sugar filled the stairwell. He wiped his hands and checked the timer again. The delivery van was late, as usual.",
+ "segments": [
+  {
+   "id": 0,
+   "seek": 0,
+   "start": 0.0,
+   "end": 4.68,
+   "text": "The baker lit the oven before dawn. Flour drifted across the narrow counter like fine snow.",
+   "words": [
+    {
+     "word": " The",
+     "start": 0.0,
+     "end": 0.0,
+     "probability": 0.48
+    },
+    {
+     "word": " baker",
+     "start": 0.34,
+     "end": 0.5,
+     "probability": 0.91
+    },
+    {
+     "word": " lit",
+     "start": 0.5,
+     "end": 0.73,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 0.73,
+     "end": 1.1,
+     "probability": 0.39
+    },
+    {
+     "word": " oven",
+     "start": 1.1,
+     "end": 1.22,
+     "probability": 1.0
+    },
+    {
+     "word": " before",
+     "start": 1.22,
+     "end": 1.44,
+     "probability": 0.43
+    },
+    {
+     "word": " dawn.",
+     "start": 1.44,
+     "end": 1.55,
+     "probability": 1.0
+    },
+    {
+     "word": " Flour",
+     "start": 1.74,
+     "end": 1.96,
+     "probability": 1.0
+    },
+    {
+     "word": " drifted",
+     "start": 1.96,
+     "end": 2.14,
+     "probability": 0.74
+    },
+    {
+     "word": " across",
+     "start": 2.14,
+     "end": 2.53,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 2.53,
+     "end": 3.0,
+     "probability": 0.47
+    },
+    {
+     "word": " narrow",
+     "start": 3.0,
+     "end": 3.38,
+     "probability": 0.7
+    },
+    {
+     "word": " counter",
+     "start": 3.38,
+     "end": 3.63,
+     "probability": 1.0
+    },
+    {
+     "word": " like",
+     "start": 3.63,
+     "end": 4.06,
+     "probability": 0.95
+    },
+    {
+     "word": " fine",
+     "start": 4.06,
+     "end": 4.43,
+     "probability": 0.77
+    },
+    {
+     "word": " snow.",
+     "start": 4.43,
+     "end": 4.68,
+     "probability": 1.0
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.2597,
+   "compressionRatio": 1.406
+  },
+  {
+   "id": 1,
+   "seek": 0,
+   "start": 5.16,
+   "end": 10.81,
+   "text": "She counted twelve loaves, then six more. A cold wind rattled the shutters all morning.",
+   "words": [
+    {
+     "word": " She",
+     "start": 5.16,
+     "end": 5.3,
+     "probability": 1.0
+    },
+    {
+     "word": " counted",
+     "start": 5.3,
+     "end": 5.69,
+     "probability": 1.0
+    },
+    {
+     "word": " twelve",
+     "start": 5.69,
+     "end": 6.14,
+     "probability": 1.0
+    },
+    {
+     "word": " loaves,",
+     "start": 6.14,
+     "end": 6.48,
+     "probability": 0.34
+    },
+    {
+     "word": " then",
+     "start": 6.48,
+     "end": 6.84,
+     "probability": 0.8
+    },
+    {
+     "word": " six",
+     "start": 6.84,
+     "end": 7.23,
+     "probability": 0.98
+    },
+    {
+     "word": " more.",
+     "start": 7.23,
+     "end": 7.69,
+     "probability": 1.0
+    },
+    {
+     "word": " A",
+     "start": 8.01,
+     "end": 8.49,
+     "probability": 1.0
+    },
+    {
+     "word": " cold",
+     "start": 8.49,
+     "end": 8.73,
+     "probability": 0.81
+    },
+    {
+     "word": " wind",
+     "start": 8.73,
+     "end": 9.0,
+     "probability": 1.0
+    },
+    {
+     "word": " rattled",
+     "start": 9.0,
+     "end": 9.41,
+     "probability": 0.92
+    },
+    {
+     "word": " the",
+     "start": 9.41,
+     "end": 9.81,
+     "probability": 0.84
+    },
+    {
+     "word": " shutters",
+     "start": 9.81,
+     "end": 10.02,
+     "probability": 0.62
+    },
+    {
+     "word": " all",
+     "start": 10.02,
+     "end": 10.37,
+     "probability": 0.36
+    },
+    {
+     "word": " morning.",
+     "start": 10.37,
+     "end": 10.81,
+     "probability": 1.0
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.1628,
+   "compressionRatio": 1.078
+  },
+  {
+   "id": 2,
+   "seek": 0,
+   "start": 11.09,
+   "end": 13.26,
+   "text": "Nobody remembered where the spare scale went.",
+   "words": [
+    {
+     "word": " Nobody",
+     "start": 11.09,
+     "end": 11.28,
+     "probability": 0.99
+    },
+    {
+     "word": " remembered",
+     "start": 11.28,
+     "end": 11.66,
+     "probability": 1.0
+    },
+    {
+     "word": " where",
+     "start": 11.66,
+     "end": 11.87,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 11.87,
+     "end": 12.32,
+     "probability": 0.97
+    },
+    {
+     "word": " spare",
+     "start": 12.32,
+     "end": 12.44,
+     "probability": 1.0
+    },
+    {
+     "word": " scale",
+     "start": 12.44,
+     "end": 12.84,
+     "probability": 0.77
+    },
+    {
+     "word": " went.",
+     "start": 12.84,
+     "end": 13.26,
+     "probability": 1.0
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.0793,
+   "compressionRatio": 1.696
+  },
+  {
+   "id": 3,
+   "seek": 0,
+   "start": 13.72,
+   "end": 18.94,
+   "text": "Cinnamon and burnt sugar filled the stairwell. He wiped his hands and checked the timer again.",
+   "words": [
+    {
+     "word": " Cinnamon",
+     "start": 13.72,
+     "end": 13.82,
+     "probability": 0.42
+    },
+    {
+     "word": " and",
+     "start": 13.82,
+     "end": 14.05,
+     "probability": 0.59
+    },
+    {
+     "word": " burnt",
+     "start": 14.05,
+     "end": 14.51,
+     "probability": 0.35
+    },
+    {
+     "word": " sugar",
+     "start": 14.51,
+     "end": 14.85,
+     "probability": 1.0
+    },
+    {
+     "word": " filled",
+     "start": 14.85,
+     "end": 15.31,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 15.31,
+     "end": 15.81,
+     "probability": 1.0
+    },
+    {
+     "word": " stairwell.",
+     "start": 15.81,
+     "end": 16.1,
+     "probability": 0.51
+    },
+    {
+     "word": " He",
+     "start": 16.51,
+     "end": 16.78,
+     "probability": 0.89
+    },
+    {
+     "word": " wiped",
+     "start": 16.78,
+     "end": 16.92,
+     "probability": 1.0
+    },
+    {
+     "word": " his",
+     "start": 16.92,
+     "end": 17.14,
+     "probability": 1.0
+    },
+    {
+     "word": " hands",
+     "start": 17.14,
+     "end": 17.53,
+     "probability": 1.0
+    },
+    {
+     "word": " and",
+     "start": 17.53,
+     "end": 17.9,
+     "probability": 0.6
+    },
+    {
+     "word": " checked",
+     "start": 17.9,
+     "end": 18.27,
+     "probability": 0.32
+    },
+    {
+     "word": " the",
+     "start": 18.27,
+     "end": 18.37,
+     "probability": 0.55
+    },
+    {
+     "word": " timer",
+     "start": 18.37,
+     "end": 18.7,
+     "probability": 1.0
+    },
+    {
+     "word": " again.",
+     "start": 18.7,
+     "end": 18.94,
+     "probability": 0.67
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.208,
+   "compressionRatio": 1.624
+  },
+  {
+   "id": 4,
+   "seek": 409600,
+   "start": 25.7,
+   "end": 28.1,
+   "text": "The delivery van was late, as usual.",
+   "words": [
+    {
+     "word": " The",
+     "start": 25.7,
+     "end": 26.12,
+     "probability": 0.85
+    },
+    {
+     "word": " delivery",
+     "start": 26.12,
+     "end": 26.56,
+     "probability": 1.0
+    },
+    {
+     "word": " van",
+     "start": 26.56,
+     "end": 26.9,
+     "probability": 1.0
+    },
+    {
+     "word": " was",
+     "start": 26.9,
+     "end": 27.21,
+     "probability": 1.0
+    },
+    {
+     "word": " late,",
+     "start": 27.21,
+     "end": 27.48,
+     "probability": 1.0
+    },
+    {
+     "word": " as",
+     "start": 27.48,
+     "end": 27.89,
+     "probability": 0.77
+    },
+    {
+     "word": " usual.",
+     "start": 27.89,
+     "end": 28.1,
+     "probability": 1.0
+    },
+    {
+     "word": "<|endoftext|>",
+     "start": 28.1,
+     "end": 28.1,
+     "probability": 0.5
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.1266,
+   "compressionRatio": 1.8
+  }
+ ],
+ "language": "en",
+ "seekTime": null,
+ "timings": {
+  "audioLoading": 0.0,
+  "audioProcessing": 0.0,
+  "decoderLoadTime": 0.0,
+  "decoderSpecializationTime": 0,
+  "decodingFallback": 0,
+  "decodingFiltering": 0.0,
+  "decodingInit": 0.0,
+  "decodingKvCaching": 0.0,
+  "decodingLoop": 5.0,
+  "decodingNonPrediction": 0.0,
+  "decodingPredictions": 4.0,
+  "decodingSampling": 0.0,
+  "decodingWindowing": 0.0,
+  "decodingWordTimestamps": 0.0,
+  "encoderLoadTime": 0.0,
+  "encoderSpecializationTime": 0,
+  "encoding": 1.0,
+  "firstTokenTime": 1000.5,
+  "fullPipeline": 10.0,
+  "inputAudioSeconds": 30,
+  "logmels": 0.0,
+  "modelLoading": 1.0,
+  "pipelineStart": 1000.0,
+  "prefill": 0.0,
+  "prewarmLoadTime": 0,
+  "tokenizerLoadTime": 0.0,
+  "totalAudioProcessingRuns": 2,
+  "totalDecodingFallbacks": 0,
+  "totalDecodingLoops": 20,
+  "totalDecodingWindows": 2,
+  "totalEncodingRuns": 2,
+  "totalKVUpdateRuns": 20,
+  "totalLogmelRuns": 2,
+  "totalTimestampAlignmentRuns": 2
+ }
+}

@@ -1,0 +1,16 @@
+sourcefiles/
+.DS_Store
+.venv/
+__pycache__/
+.foreman/
+.cache/
+out/
+
+# framescribe
+*.egg-info/
+.pytest_cache/
+.claude/
+
+# Mac app
+app/build/
+app/.build/

@@ -1,0 +1,14 @@
+{
+  "ok": false,
+  "checks": [
+    {"name": "platform", "status": "ok", "detail": "macOS on Apple Silicon (arm64)", "fix": null, "required": true},
+    {"name": "python", "status": "ok", "detail": "3.12.12", "fix": null, "required": true},
+    {"name": "ffmpeg", "status": "ok", "detail": "8.0 (/opt/homebrew/bin/ffmpeg)", "fix": null, "required": true},
+    {"name": "ffprobe", "status": "ok", "detail": "8.0 (/opt/homebrew/bin/ffprobe)", "fix": null, "required": true},
+    {"name": "speech model", "status": "missing", "detail": "mlx-community/parakeet-tdt-0.6b-v3 is not in the Hugging Face cache (/home/user/.cache/huggingface/hub); the download is about 2.5 GB", "fix": "framescribe setup", "required": true},
+    {"name": "apple vision ocr", "status": "ok", "detail": "importable (pyobjc Vision framework)", "fix": null, "required": true},
+    {"name": "disk space", "status": "ok", "detail": "120.0 GB free where the model cache is (/home/user/.cache/huggingface/hub)", "fix": null, "required": false},
+    {"name": "memory", "status": "warning", "detail": "16 GB installed, 12% free; under 20% is free right now", "fix": "close other applications before a run", "required": false},
+    {"name": "whisperkit", "status": "ok", "detail": "not configured (optional)", "fix": null, "required": false}
+  ]
+}

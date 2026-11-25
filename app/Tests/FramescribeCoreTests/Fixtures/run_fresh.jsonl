@@ -1,0 +1,136 @@
+{"event": "run_start", "t": 0.052, "source": "/home/user/Movies/excerpt.mp4", "duration": 180.009333, "run_dir": "/home/user/Documents/framescribe/excerpt", "stages": [{"name": "ingest", "skipped_reason": null}, {"name": "asr.parakeet", "skipped_reason": null}, {"name": "asr.whisperkit", "skipped_reason": "no CLI configured (--whisperkit-cli or FRAMESCRIBE_WHISPERKIT_CLI)"}, {"name": "asr", "skipped_reason": null}, {"name": "visual", "skipped_reason": null}, {"name": "ocr", "skipped_reason": null}, {"name": "report", "skipped_reason": null}]}
+{"event": "stage_end", "t": 0.052, "stage": "asr.whisperkit", "status": "skipped", "wall_seconds": 0.0, "reason": "no CLI configured (--whisperkit-cli or FRAMESCRIBE_WHISPERKIT_CLI)"}
+{"event": "stage_start", "t": 0.052, "stage": "ingest"}
+{"event": "stage_progress", "t": 0.081, "stage": "ingest", "done": 0.0, "total": 180.009333, "unit": "audio_s", "note": "extracting audio"}
+{"event": "stage_progress", "t": 0.22, "stage": "ingest", "done": 180.009313, "total": 180.009333, "unit": "audio_s", "note": "extracting audio"}
+{"event": "stage_progress", "t": 0.221, "stage": "ingest", "done": 0.0, "total": 1.0, "unit": "step", "note": "reading embedded captions"}
+{"event": "stage_progress", "t": 0.221, "stage": "ingest", "done": 0.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.271, "stage": "ingest", "done": 1.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.321, "stage": "ingest", "done": 2.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.371, "stage": "ingest", "done": 3.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.421, "stage": "ingest", "done": 4.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.471, "stage": "ingest", "done": 5.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.521, "stage": "ingest", "done": 6.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.571, "stage": "ingest", "done": 7.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.621, "stage": "ingest", "done": 8.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.673, "stage": "ingest", "done": 9.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.722, "stage": "ingest", "done": 10.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.772, "stage": "ingest", "done": 11.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.82, "stage": "ingest", "done": 12.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.87, "stage": "ingest", "done": 13.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.918, "stage": "ingest", "done": 14.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.967, "stage": "ingest", "done": 15.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.017, "stage": "ingest", "done": 16.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.066, "stage": "ingest", "done": 17.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.114, "stage": "ingest", "done": 18.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.164, "stage": "ingest", "done": 19.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.212, "stage": "ingest", "done": 20.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.261, "stage": "ingest", "done": 21.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.309, "stage": "ingest", "done": 22.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.358, "stage": "ingest", "done": 23.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.409, "stage": "ingest", "done": 24.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.459, "stage": "ingest", "done": 25.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.51, "stage": "ingest", "done": 26.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.56, "stage": "ingest", "done": 27.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.608, "stage": "ingest", "done": 28.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.659, "stage": "ingest", "done": 29.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.707, "stage": "ingest", "done": 30.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.757, "stage": "ingest", "done": 31.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.806, "stage": "ingest", "done": 32.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.857, "stage": "ingest", "done": 33.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.906, "stage": "ingest", "done": 34.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.957, "stage": "ingest", "done": 35.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 2.006, "stage": "ingest", "done": 36.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 2.056, "stage": "ingest", "done": 37.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 2.106, "stage": "ingest", "done": 38.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 2.156, "stage": "ingest", "done": 39.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 2.207, "stage": "ingest", "done": 40.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_end", "t": 2.227, "stage": "ingest", "status": "done", "wall_seconds": 2.175, "summary": "00:03:00, content 0,102 960x516 + 1 other region(s), 0 captions"}
+{"event": "stage_start", "t": 2.227, "stage": "asr.parakeet"}
+{"event": "log", "t": 2.277, "stage": "asr.parakeet", "message": "MLX cache limit 512 MB (was 16384 MB)"}
+{"event": "stage_progress", "t": 2.277, "stage": "asr.parakeet", "done": 0.0, "total": 360.018625, "unit": "audio_s", "note": "loading model"}
+{"event": "stage_progress", "t": 2.491, "stage": "asr.parakeet", "done": 0.0, "total": 360.018625, "unit": "audio_s", "note": "pass 1, chunk 1/7"}
+{"event": "stage_progress", "t": 4.273, "stage": "asr.parakeet", "done": 25.235, "total": 360.018625, "unit": "audio_s", "note": "pass 1, chunk 2/7"}
+{"event": "stage_progress", "t": 4.575, "stage": "asr.parakeet", "done": 50.465, "total": 360.018625, "unit": "audio_s", "note": "pass 1, chunk 3/7"}
+{"event": "log", "t": 7.256, "stage": "asr.parakeet", "message": "chunk 50.47-82.65 s: 68 words without punctuation kept (the decode with the most words of 7, with other context and leading silence; a punctuated decode had only 62 words); sentences there are split at pauses only"}
+{"event": "stage_progress", "t": 7.256, "stage": "asr.parakeet", "done": 82.65, "total": 360.018625, "unit": "audio_s", "note": "pass 1, chunk 4/7"}
+{"event": "stage_progress", "t": 8.688, "stage": "asr.parakeet", "done": 111.005, "total": 360.018625, "unit": "audio_s", "note": "pass 1, chunk 5/7"}
+{"event": "log", "t": 11.589, "stage": "asr.parakeet", "message": "chunk 111.00-139.33 s: 56 words without punctuation kept (the decode with the most words of 7, with other context and leading silence; a punctuated decode had only 55 words); sentences there are split at pauses only"}
+{"event": "stage_progress", "t": 11.589, "stage": "asr.parakeet", "done": 139.33, "total": 360.018625, "unit": "audio_s", "note": "pass 1, chunk 6/7"}
+{"event": "stage_progress", "t": 11.856, "stage": "asr.parakeet", "done": 164.375, "total": 360.018625, "unit": "audio_s", "note": "pass 1, chunk 7/7"}
+{"event": "stage_progress", "t": 12.058, "stage": "asr.parakeet", "done": 180.0093125, "total": 360.018625, "unit": "audio_s", "note": "pass 2, chunk 1/8"}
+{"event": "stage_progress", "t": 12.241, "stage": "asr.parakeet", "done": 192.0993125, "total": 360.018625, "unit": "audio_s", "note": "pass 2, chunk 2/8"}
+{"event": "stage_progress", "t": 12.581, "stage": "asr.parakeet", "done": 221.9993125, "total": 360.018625, "unit": "audio_s", "note": "pass 2, chunk 3/8"}
+{"event": "stage_progress", "t": 12.871, "stage": "asr.parakeet", "done": 245.1343125, "total": 360.018625, "unit": "audio_s", "note": "pass 2, chunk 4/8"}
+{"event": "stage_progress", "t": 13.626, "stage": "asr.parakeet", "done": 276.5593125, "total": 360.018625, "unit": "audio_s", "note": "pass 2, chunk 5/8"}
+{"event": "stage_progress", "t": 13.957, "stage": "asr.parakeet", "done": 298.3443125, "total": 360.018625, "unit": "audio_s", "note": "pass 2, chunk 6/8"}
+{"event": "stage_progress", "t": 14.336, "stage": "asr.parakeet", "done": 327.8543125, "total": 360.018625, "unit": "audio_s", "note": "pass 2, chunk 7/8"}
+{"event": "stage_progress", "t": 14.616, "stage": "asr.parakeet", "done": 351.6493125, "total": 360.018625, "unit": "audio_s", "note": "pass 2, chunk 8/8"}
+{"event": "log", "t": 15.713, "stage": "asr.parakeet", "message": "MLX peak memory 4251 MB"}
+{"event": "stage_progress", "t": 15.713, "stage": "asr.parakeet", "done": 360.018625, "total": 360.018625, "unit": "audio_s", "note": "building words"}
+{"event": "log", "t": 15.715, "stage": "asr.parakeet", "message": "casing of the first word after a cut taken from the other pass: 1 words in pass 1, 3 in pass 2"}
+{"event": "stage_end", "t": 15.718, "stage": "asr.parakeet", "status": "done", "wall_seconds": 13.49, "summary": "312 words (+ 304 in the second pass), 27 sentences, 13x realtime"}
+{"event": "stage_start", "t": 15.718, "stage": "asr"}
+{"event": "stage_progress", "t": 15.718, "stage": "asr", "done": 0.0, "total": 1.0, "unit": "sources", "note": "comparing with parakeet-pass2"}
+{"event": "stage_progress", "t": 15.721, "stage": "asr", "done": 1.0, "total": 1.0, "unit": "sources", "note": "filling gaps"}
+{"event": "stage_end", "t": 15.724, "stage": "asr", "status": "done", "wall_seconds": 0.006, "summary": "27 segments from parakeet, speakers: none; cross-checked against the second parakeet pass only (no other transcript available); filled 3 words (1.0%; 3 from parakeet-pass2): 0 confirmed, 1 unconfirmed, 0 rejected gaps"}
+{"event": "stage_start", "t": 15.724, "stage": "visual"}
+{"event": "stage_progress", "t": 15.776, "stage": "visual", "done": 0.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:00:00, 0 states"}
+{"event": "stage_progress", "t": 15.847, "stage": "visual", "done": 30.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:00:15, 2 states"}
+{"event": "stage_progress", "t": 15.898, "stage": "visual", "done": 60.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:00:30, 2 states"}
+{"event": "stage_progress", "t": 15.958, "stage": "visual", "done": 90.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:00:45, 2 states"}
+{"event": "stage_progress", "t": 16.017, "stage": "visual", "done": 120.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:01:00, 2 states"}
+{"event": "stage_progress", "t": 16.098, "stage": "visual", "done": 150.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:01:15, 4 states"}
+{"event": "stage_progress", "t": 16.189, "stage": "visual", "done": 180.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:01:30, 5 states"}
+{"event": "stage_progress", "t": 16.341, "stage": "visual", "done": 210.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:01:45, 8 states"}
+{"event": "stage_progress", "t": 16.485, "stage": "visual", "done": 240.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:02:00, 11 states"}
+{"event": "stage_progress", "t": 16.55, "stage": "visual", "done": 270.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:02:15, 12 states"}
+{"event": "stage_progress", "t": 16.669, "stage": "visual", "done": 300.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:02:30, 14 states"}
+{"event": "stage_progress", "t": 16.745, "stage": "visual", "done": 330.0, "total": 361.0, "unit": "frames", "note": "change detection at 00:02:45, 15 states"}
+{"event": "stage_progress", "t": 16.871, "stage": "visual", "done": 361.0, "total": 361.0, "unit": "frames", "note": "change detection done, 17 states"}
+{"event": "log", "t": 16.871, "stage": "visual", "message": "1 change(s) did not settle within 10 s (an animation, video or camera feed on screen) and were cut off at their calmest frame"}
+{"event": "stage_progress", "t": 16.871, "stage": "visual", "done": 0.0, "total": 17.0, "unit": "key frames", "note": "extracting key frames"}
+{"event": "stage_progress", "t": 16.967, "stage": "visual", "done": 1.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 1/17"}
+{"event": "stage_progress", "t": 17.185, "stage": "visual", "done": 2.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 2/17"}
+{"event": "stage_progress", "t": 17.192, "stage": "visual", "done": 3.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 3/17"}
+{"event": "stage_progress", "t": 17.239, "stage": "visual", "done": 4.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 4/17"}
+{"event": "stage_progress", "t": 17.272, "stage": "visual", "done": 5.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 5/17"}
+{"event": "stage_progress", "t": 17.289, "stage": "visual", "done": 6.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 6/17"}
+{"event": "stage_progress", "t": 17.311, "stage": "visual", "done": 7.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 7/17"}
+{"event": "stage_progress", "t": 17.342, "stage": "visual", "done": 8.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 8/17"}
+{"event": "stage_progress", "t": 17.347, "stage": "visual", "done": 9.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 9/17"}
+{"event": "stage_progress", "t": 17.377, "stage": "visual", "done": 10.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 10/17"}
+{"event": "stage_progress", "t": 17.409, "stage": "visual", "done": 11.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 11/17"}
+{"event": "stage_progress", "t": 17.432, "stage": "visual", "done": 12.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 12/17"}
+{"event": "stage_progress", "t": 17.442, "stage": "visual", "done": 13.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 13/17"}
+{"event": "stage_progress", "t": 17.528, "stage": "visual", "done": 14.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 14/17"}
+{"event": "stage_progress", "t": 17.573, "stage": "visual", "done": 15.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 15/17"}
+{"event": "stage_progress", "t": 17.604, "stage": "visual", "done": 16.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 16/17"}
+{"event": "stage_progress", "t": 17.608, "stage": "visual", "done": 17.0, "total": 17.0, "unit": "key frames", "note": "saving key frame 17/17"}
+{"event": "stage_end", "t": 17.611, "stage": "visual", "status": "done", "wall_seconds": 1.887, "summary": "17 states (5.7/min; 1 initial, 1 minor, 10 page, 2 partial, 3 scroll), 1 pointer samples, state-rate safeguard hit"}
+{"event": "stage_start", "t": 17.611, "stage": "ocr"}
+{"event": "stage_progress", "t": 17.847, "stage": "ocr", "done": 0.0, "total": 17.0, "unit": "frames", "note": "starting"}
+{"event": "stage_progress", "t": 18.362, "stage": "ocr", "done": 1.0, "total": 17.0, "unit": "frames", "note": "state 2/17: 35 lines"}
+{"event": "stage_progress", "t": 18.593, "stage": "ocr", "done": 2.0, "total": 17.0, "unit": "frames", "note": "state 3/17: 32 lines"}
+{"event": "stage_progress", "t": 18.856, "stage": "ocr", "done": 3.0, "total": 17.0, "unit": "frames", "note": "state 1/17: 40 lines"}
+{"event": "stage_progress", "t": 19.138, "stage": "ocr", "done": 4.0, "total": 17.0, "unit": "frames", "note": "state 4/17: 41 lines"}
+{"event": "stage_progress", "t": 19.374, "stage": "ocr", "done": 5.0, "total": 17.0, "unit": "frames", "note": "state 5/17: 45 lines"}
+{"event": "stage_progress", "t": 19.585, "stage": "ocr", "done": 6.0, "total": 17.0, "unit": "frames", "note": "state 6/17: 37 lines"}
+{"event": "stage_progress", "t": 19.832, "stage": "ocr", "done": 7.0, "total": 17.0, "unit": "frames", "note": "state 7/17: 30 lines"}
+{"event": "stage_progress", "t": 20.1, "stage": "ocr", "done": 8.0, "total": 17.0, "unit": "frames", "note": "state 8/17: 27 lines"}
+{"event": "stage_progress", "t": 20.423, "stage": "ocr", "done": 9.0, "total": 17.0, "unit": "frames", "note": "state 9/17: 56 lines"}
+{"event": "stage_progress", "t": 20.733, "stage": "ocr", "done": 10.0, "total": 17.0, "unit": "frames", "note": "state 10/17: 66 lines"}
+{"event": "stage_progress", "t": 20.919, "stage": "ocr", "done": 11.0, "total": 17.0, "unit": "frames", "note": "state 11/17: 14 lines"}
+{"event": "stage_progress", "t": 21.133, "stage": "ocr", "done": 12.0, "total": 17.0, "unit": "frames", "note": "state 12/17: 42 lines"}
+{"event": "stage_progress", "t": 21.233, "stage": "ocr", "done": 13.0, "total": 17.0, "unit": "frames", "note": "state 13/17: 7 lines"}
+{"event": "stage_progress", "t": 21.506, "stage": "ocr", "done": 14.0, "total": 17.0, "unit": "frames", "note": "state 14/17: 42 lines"}
+{"event": "stage_progress", "t": 21.763, "stage": "ocr", "done": 15.0, "total": 17.0, "unit": "frames", "note": "state 15/17: 62 lines"}
+{"event": "stage_progress", "t": 22.059, "stage": "ocr", "done": 16.0, "total": 17.0, "unit": "frames", "note": "state 16/17: 80 lines"}
+{"event": "stage_progress", "t": 22.355, "stage": "ocr", "done": 17.0, "total": 17.0, "unit": "frames", "note": "state 17/17: 78 lines"}
+{"event": "stage_end", "t": 22.414, "stage": "ocr", "status": "done", "wall_seconds": 4.803, "summary": "17 states, 17 frames read, 43 lines/state"}
+{"event": "stage_start", "t": 22.414, "stage": "report"}
+{"event": "stage_progress", "t": 22.414, "stage": "report", "done": 0.0, "total": 1.0, "unit": "steps", "note": "choosing steps"}
+{"event": "stage_progress", "t": 22.416, "stage": "report", "done": 1.0, "total": 1.0, "unit": "steps", "note": "timeline of step 1/1"}
+{"event": "stage_progress", "t": 22.416, "stage": "report", "done": 1.0, "total": 1.0, "unit": "steps", "note": "writing report.md"}
+{"event": "stage_end", "t": 22.419, "stage": "report", "status": "done", "wall_seconds": 0.005, "summary": "1 steps, 0 pointer hints"}
+{"event": "run_end", "t": 22.419, "status": "ok", "run_dir": "/home/user/Documents/framescribe/excerpt", "wall_seconds": 22.419, "outputs": ["/home/user/Documents/framescribe/excerpt/report.md", "/home/user/Documents/framescribe/excerpt/timeline.json", "/home/user/Documents/framescribe/excerpt/ANALYSIS_PROMPT.md", "/home/user/Documents/framescribe/excerpt/transcript.md", "/home/user/Documents/framescribe/excerpt/run.json"], "completeness": {"primary": "parakeet", "primary_words": 312, "sources": ["parakeet-pass2"], "unavailable": ["whisperkit: not part of this run", "captions: the video has no embedded captions"], "filled_words": 3, "filled_by_source": {"parakeet-pass2": 3}, "filled_share": 0.00952, "confirmed": 0, "unconfirmed": 1, "rejected": 0, "rejected_by_reason": {}, "warning": null, "summary": "cross-checked against the second parakeet pass only (no other transcript available); filled 3 words (1.0%; 3 from parakeet-pass2): 0 confirmed, 1 unconfirmed, 0 rejected gaps"}, "warnings": ["chunk 50.47-82.65 s: 68 words without punctuation kept (the decode with the most words of 7, with other context and leading silence; a punctuated decode had only 62 words); sentences there are split at pauses only", "chunk 111.00-139.33 s: 56 words without punctuation kept (the decode with the most words of 7, with other context and leading silence; a punctuated decode had only 55 words); sentences there are split at pauses only"]}

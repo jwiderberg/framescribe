@@ -1,0 +1,49 @@
+{"event": "run_start", "t": 0.038, "source": "/home/user/Movies/excerpt.mp4", "duration": 180.009333, "run_dir": "/home/user/Documents/framescribe/excerpt", "stages": [{"name": "ingest", "skipped_reason": null}, {"name": "asr.parakeet", "skipped_reason": null}, {"name": "asr.whisperkit", "skipped_reason": "no CLI configured (--whisperkit-cli or FRAMESCRIBE_WHISPERKIT_CLI)"}, {"name": "asr", "skipped_reason": null}, {"name": "visual", "skipped_reason": null}, {"name": "ocr", "skipped_reason": null}, {"name": "report", "skipped_reason": null}]}
+{"event": "stage_end", "t": 0.038, "stage": "asr.whisperkit", "status": "skipped", "wall_seconds": 0.0, "reason": "no CLI configured (--whisperkit-cli or FRAMESCRIBE_WHISPERKIT_CLI)"}
+{"event": "stage_start", "t": 0.038, "stage": "ingest"}
+{"event": "stage_progress", "t": 0.071, "stage": "ingest", "done": 0.0, "total": 180.009333, "unit": "audio_s", "note": "extracting audio"}
+{"event": "stage_progress", "t": 0.208, "stage": "ingest", "done": 180.009313, "total": 180.009333, "unit": "audio_s", "note": "extracting audio"}
+{"event": "stage_progress", "t": 0.209, "stage": "ingest", "done": 0.0, "total": 1.0, "unit": "step", "note": "reading embedded captions"}
+{"event": "stage_progress", "t": 0.209, "stage": "ingest", "done": 0.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.259, "stage": "ingest", "done": 1.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.311, "stage": "ingest", "done": 2.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.362, "stage": "ingest", "done": 3.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.413, "stage": "ingest", "done": 4.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.464, "stage": "ingest", "done": 5.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.514, "stage": "ingest", "done": 6.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.565, "stage": "ingest", "done": 7.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.616, "stage": "ingest", "done": 8.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.667, "stage": "ingest", "done": 9.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.718, "stage": "ingest", "done": 10.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.77, "stage": "ingest", "done": 11.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.819, "stage": "ingest", "done": 12.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.87, "stage": "ingest", "done": 13.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.92, "stage": "ingest", "done": 14.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 0.971, "stage": "ingest", "done": 15.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.02, "stage": "ingest", "done": 16.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.07, "stage": "ingest", "done": 17.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.119, "stage": "ingest", "done": 18.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.168, "stage": "ingest", "done": 19.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.217, "stage": "ingest", "done": 20.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.266, "stage": "ingest", "done": 21.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.316, "stage": "ingest", "done": 22.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.367, "stage": "ingest", "done": 23.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.417, "stage": "ingest", "done": 24.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.468, "stage": "ingest", "done": 25.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.518, "stage": "ingest", "done": 26.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.568, "stage": "ingest", "done": 27.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.616, "stage": "ingest", "done": 28.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.666, "stage": "ingest", "done": 29.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.714, "stage": "ingest", "done": 30.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.764, "stage": "ingest", "done": 31.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.814, "stage": "ingest", "done": 32.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.864, "stage": "ingest", "done": 33.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.914, "stage": "ingest", "done": 34.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 1.964, "stage": "ingest", "done": 35.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 2.014, "stage": "ingest", "done": 36.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 2.065, "stage": "ingest", "done": 37.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 2.115, "stage": "ingest", "done": 38.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 2.166, "stage": "ingest", "done": 39.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_progress", "t": 2.217, "stage": "ingest", "done": 40.0, "total": 40.0, "unit": "frames", "note": "sampling frames for layout"}
+{"event": "stage_end", "t": 2.238, "stage": "ingest", "status": "done", "wall_seconds": 2.2, "summary": "00:03:00, content 0,102 960x516 + 1 other region(s), 0 captions"}
+{"event": "stage_start", "t": 2.238, "stage": "asr.parakeet"}

@@ -1,0 +1,799 @@
+{
+ "text": "Rain tapped softly on the skylight. We should label the trays before the lunch crowd arrives. Honey needs a slower hand than molasses. The apprentice stirred the starter twice. Tomorrow's batch will use the rye. Sure, go ahead. Yes. Honey first. Then the rye flour. Right. Please move the ladder. Fine. Yes. Right. Right. Somebody propped the back door with a crate of lemons. Steam curled up from the cooling racks. Keep the dough away from the window. Three bells rang from the harbour chapel. The kettle whistled, so nobody heard the phone. Pears are cheaper this week, though bruised.",
+ "segments": [
+  {
+   "id": 0,
+   "seek": 0,
+   "start": 3.4,
+   "end": 8.77,
+   "text": "Rain tapped softly on the skylight. We should label the trays before the lunch crowd arrives.",
+   "words": [
+    {
+     "word": " Rain",
+     "start": 3.4,
+     "end": 3.87,
+     "probability": 0.47
+    },
+    {
+     "word": " tapped",
+     "start": 3.87,
+     "end": 4.32,
+     "probability": 1.0
+    },
+    {
+     "word": " softly",
+     "start": 4.32,
+     "end": 4.51,
+     "probability": 0.79
+    },
+    {
+     "word": " on",
+     "start": 4.51,
+     "end": 4.8,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 4.8,
+     "end": 4.97,
+     "probability": 1.0
+    },
+    {
+     "word": " skylight.",
+     "start": 4.97,
+     "end": 5.23,
+     "probability": 0.77
+    },
+    {
+     "word": " We",
+     "start": 5.59,
+     "end": 5.92,
+     "probability": 1.0
+    },
+    {
+     "word": " should",
+     "start": 5.92,
+     "end": 6.36,
+     "probability": 1.0
+    },
+    {
+     "word": " label",
+     "start": 6.36,
+     "end": 6.55,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 6.55,
+     "end": 6.91,
+     "probability": 0.35
+    },
+    {
+     "word": " trays",
+     "start": 6.91,
+     "end": 7.23,
+     "probability": 0.8
+    },
+    {
+     "word": " before",
+     "start": 7.23,
+     "end": 7.38,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 7.38,
+     "end": 7.83,
+     "probability": 0.43
+    },
+    {
+     "word": " lunch",
+     "start": 7.83,
+     "end": 8.28,
+     "probability": 1.0
+    },
+    {
+     "word": " crowd",
+     "start": 8.28,
+     "end": 8.51,
+     "probability": 1.0
+    },
+    {
+     "word": " arrives.",
+     "start": 8.51,
+     "end": 8.77,
+     "probability": 1.0
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.1047,
+   "compressionRatio": 1.622
+  },
+  {
+   "id": 1,
+   "seek": 0,
+   "start": 9.12,
+   "end": 15.24,
+   "text": "Honey needs a slower hand than molasses. The apprentice stirred the starter twice. Tomorrow's batch will use the rye.",
+   "words": [
+    {
+     "word": " Honey",
+     "start": 9.12,
+     "end": 9.35,
+     "probability": 0.43
+    },
+    {
+     "word": " needs",
+     "start": 9.35,
+     "end": 9.71,
+     "probability": 1.0
+    },
+    {
+     "word": " a",
+     "start": 9.71,
+     "end": 10.01,
+     "probability": 1.0
+    },
+    {
+     "word": " slower",
+     "start": 10.01,
+     "end": 10.47,
+     "probability": 1.0
+    },
+    {
+     "word": " hand",
+     "start": 10.47,
+     "end": 10.61,
+     "probability": 0.57
+    },
+    {
+     "word": " than",
+     "start": 10.61,
+     "end": 10.85,
+     "probability": 1.0
+    },
+    {
+     "word": " molasses.",
+     "start": 10.85,
+     "end": 11.3,
+     "probability": 1.0
+    },
+    {
+     "word": " The",
+     "start": 11.75,
+     "end": 11.92,
+     "probability": 1.0
+    },
+    {
+     "word": " apprentice",
+     "start": 11.92,
+     "end": 12.03,
+     "probability": 0.76
+    },
+    {
+     "word": " stirred",
+     "start": 12.03,
+     "end": 12.2,
+     "probability": 0.4
+    },
+    {
+     "word": " the",
+     "start": 12.2,
+     "end": 12.51,
+     "probability": 0.88
+    },
+    {
+     "word": " starter",
+     "start": 12.51,
+     "end": 12.77,
+     "probability": 1.0
+    },
+    {
+     "word": " twice.",
+     "start": 12.77,
+     "end": 12.95,
+     "probability": 0.8
+    },
+    {
+     "word": " Tomorrow's",
+     "start": 13.39,
+     "end": 13.78,
+     "probability": 1.0
+    },
+    {
+     "word": " batch",
+     "start": 13.78,
+     "end": 13.99,
+     "probability": 0.81
+    },
+    {
+     "word": " will",
+     "start": 13.99,
+     "end": 14.47,
+     "probability": 0.61
+    },
+    {
+     "word": " use",
+     "start": 14.47,
+     "end": 14.82,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 14.82,
+     "end": 14.96,
+     "probability": 0.81
+    },
+    {
+     "word": " rye.",
+     "start": 14.96,
+     "end": 15.24,
+     "probability": 1.0
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.0976,
+   "compressionRatio": 1.839
+  },
+  {
+   "id": 2,
+   "seek": 384000,
+   "start": 24.9,
+   "end": 25.92,
+   "text": "Sure, go ahead.",
+   "words": [
+    {
+     "word": " Sure,",
+     "start": 24.9,
+     "end": 25.12,
+     "probability": 0.34
+    },
+    {
+     "word": " go",
+     "start": 25.12,
+     "end": 25.5,
+     "probability": 0.74
+    },
+    {
+     "word": " ahead.",
+     "start": 25.5,
+     "end": 25.92,
+     "probability": 1.0
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.3166,
+   "compressionRatio": 1.334
+  },
+  {
+   "id": 3,
+   "seek": 384000,
+   "start": 26.96,
+   "end": 27.19,
+   "text": "Yes.",
+   "words": [
+    {
+     "word": " Yes.",
+     "start": 26.96,
+     "end": 27.19,
+     "probability": 1.0
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.2821,
+   "compressionRatio": 1.479
+  },
+  {
+   "id": 4,
+   "seek": 384000,
+   "start": 27.96,
+   "end": 28.43,
+   "text": "Honey first.",
+   "words": [
+    {
+     "word": " Honey",
+     "start": 27.96,
+     "end": 28.07,
+     "probability": 1.0
+    },
+    {
+     "word": " first.",
+     "start": 28.07,
+     "end": 28.43,
+     "probability": 0.93
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.1694,
+   "compressionRatio": 1.931
+  },
+  {
+   "id": 5,
+   "seek": 384000,
+   "start": 29.5,
+   "end": 31.21,
+   "text": "Then the rye flour.",
+   "words": [
+    {
+     "word": " Then",
+     "start": 29.5,
+     "end": 29.98,
+     "probability": 0.69
+    },
+    {
+     "word": " the",
+     "start": 29.98,
+     "end": 30.37,
+     "probability": 1.0
+    },
+    {
+     "word": " rye",
+     "start": 30.37,
+     "end": 30.86,
+     "probability": 0.52
+    },
+    {
+     "word": " flour.",
+     "start": 30.86,
+     "end": 31.21,
+     "probability": 0.75
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.2781,
+   "compressionRatio": 1.151
+  },
+  {
+   "id": 6,
+   "seek": 384000,
+   "start": 32.36,
+   "end": 32.83,
+   "text": "Right.",
+   "words": [
+    {
+     "word": " Right.",
+     "start": 32.36,
+     "end": 32.83,
+     "probability": 1.0
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.2395,
+   "compressionRatio": 1.619
+  },
+  {
+   "id": 7,
+   "seek": 384000,
+   "start": 34.28,
+   "end": 35.52,
+   "text": "Please move the ladder.",
+   "words": [
+    {
+     "word": " Please",
+     "start": 34.28,
+     "end": 34.4,
+     "probability": 0.82
+    },
+    {
+     "word": " move",
+     "start": 34.4,
+     "end": 34.72,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 34.72,
+     "end": 35.13,
+     "probability": 0.3
+    },
+    {
+     "word": " ladder.",
+     "start": 35.13,
+     "end": 35.52,
+     "probability": 1.0
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.2367,
+   "compressionRatio": 1.328
+  },
+  {
+   "id": 8,
+   "seek": 384000,
+   "start": 36.66,
+   "end": 36.87,
+   "text": "Fine.",
+   "words": [
+    {
+     "word": " Fine.",
+     "start": 36.66,
+     "end": 36.87,
+     "probability": 1.0
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.3066,
+   "compressionRatio": 1.992
+  },
+  {
+   "id": 9,
+   "seek": 384000,
+   "start": 51.31,
+   "end": 51.66,
+   "text": "Yes.",
+   "words": [
+    {
+     "word": " Yes.",
+     "start": 51.31,
+     "end": 51.66,
+     "probability": 0.14
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.201,
+   "compressionRatio": 1.394
+  },
+  {
+   "id": 10,
+   "seek": 384000,
+   "start": 52.74,
+   "end": 53.06,
+   "text": "Right.",
+   "words": [
+    {
+     "word": " Right.",
+     "start": 52.74,
+     "end": 53.06,
+     "probability": 0.13
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.1257,
+   "compressionRatio": 1.437
+  },
+  {
+   "id": 11,
+   "seek": 640000,
+   "start": 40.9,
+   "end": 55.24,
+   "text": "Right. Somebody propped the back door with a crate of lemons. Steam curled up from the cooling racks. Keep the dough away from the window. Three bells rang from the harbour chapel. The kettle whistled, so nobody heard the phone. Pears are cheaper this week, though bruised.",
+   "words": [
+    {
+     "word": " Right.",
+     "start": 40.9,
+     "end": 41.14,
+     "probability": 0.44
+    },
+    {
+     "word": " Somebody",
+     "start": 41.26,
+     "end": 41.39,
+     "probability": 0.53
+    },
+    {
+     "word": " propped",
+     "start": 41.39,
+     "end": 41.52,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 41.52,
+     "end": 41.9,
+     "probability": 0.52
+    },
+    {
+     "word": " back",
+     "start": 41.9,
+     "end": 42.29,
+     "probability": 1.0
+    },
+    {
+     "word": " door",
+     "start": 42.29,
+     "end": 42.71,
+     "probability": 0.73
+    },
+    {
+     "word": " with",
+     "start": 42.71,
+     "end": 43.02,
+     "probability": 0.59
+    },
+    {
+     "word": " a",
+     "start": 43.02,
+     "end": 43.12,
+     "probability": 0.41
+    },
+    {
+     "word": " crate",
+     "start": 43.12,
+     "end": 43.51,
+     "probability": 1.0
+    },
+    {
+     "word": " of",
+     "start": 43.51,
+     "end": 43.71,
+     "probability": 0.92
+    },
+    {
+     "word": " lemons.",
+     "start": 43.71,
+     "end": 43.94,
+     "probability": 1.0
+    },
+    {
+     "word": " Steam",
+     "start": 44.41,
+     "end": 44.57,
+     "probability": 0.85
+    },
+    {
+     "word": " curled",
+     "start": 44.57,
+     "end": 44.79,
+     "probability": 0.68
+    },
+    {
+     "word": " up",
+     "start": 44.79,
+     "end": 45.01,
+     "probability": 1.0
+    },
+    {
+     "word": " from",
+     "start": 45.01,
+     "end": 45.44,
+     "probability": 0.71
+    },
+    {
+     "word": " the",
+     "start": 45.44,
+     "end": 45.93,
+     "probability": 0.8
+    },
+    {
+     "word": " cooling",
+     "start": 45.93,
+     "end": 46.08,
+     "probability": 0.45
+    },
+    {
+     "word": " racks.",
+     "start": 46.08,
+     "end": 46.23,
+     "probability": 0.44
+    },
+    {
+     "word": " Keep",
+     "start": 46.59,
+     "end": 47.0,
+     "probability": 0.36
+    },
+    {
+     "word": " the",
+     "start": 47.0,
+     "end": 47.27,
+     "probability": 1.0
+    },
+    {
+     "word": " dough",
+     "start": 47.27,
+     "end": 47.5,
+     "probability": 0.99
+    },
+    {
+     "word": " away",
+     "start": 47.5,
+     "end": 47.87,
+     "probability": 1.0
+    },
+    {
+     "word": " from",
+     "start": 47.87,
+     "end": 48.28,
+     "probability": 0.92
+    },
+    {
+     "word": " the",
+     "start": 48.28,
+     "end": 48.44,
+     "probability": 0.53
+    },
+    {
+     "word": " window.",
+     "start": 48.44,
+     "end": 48.77,
+     "probability": 1.0
+    },
+    {
+     "word": " Three",
+     "start": 49.17,
+     "end": 49.34,
+     "probability": 1.0
+    },
+    {
+     "word": " bells",
+     "start": 49.34,
+     "end": 49.74,
+     "probability": 1.0
+    },
+    {
+     "word": " rang",
+     "start": 49.74,
+     "end": 49.92,
+     "probability": 0.36
+    },
+    {
+     "word": " from",
+     "start": 49.92,
+     "end": 50.21,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 50.21,
+     "end": 50.33,
+     "probability": 0.58
+    },
+    {
+     "word": " harbour",
+     "start": 50.33,
+     "end": 50.69,
+     "probability": 1.0
+    },
+    {
+     "word": " chapel.",
+     "start": 50.69,
+     "end": 50.81,
+     "probability": 0.62
+    },
+    {
+     "word": " The",
+     "start": 51.16,
+     "end": 51.27,
+     "probability": 1.0
+    },
+    {
+     "word": " kettle",
+     "start": 51.27,
+     "end": 51.65,
+     "probability": 0.52
+    },
+    {
+     "word": " whistled,",
+     "start": 51.65,
+     "end": 51.91,
+     "probability": 1.0
+    },
+    {
+     "word": " so",
+     "start": 51.91,
+     "end": 52.03,
+     "probability": 0.45
+    },
+    {
+     "word": " nobody",
+     "start": 52.03,
+     "end": 52.27,
+     "probability": 0.7
+    },
+    {
+     "word": " heard",
+     "start": 52.27,
+     "end": 52.49,
+     "probability": 1.0
+    },
+    {
+     "word": " the",
+     "start": 52.49,
+     "end": 52.79,
+     "probability": 0.99
+    },
+    {
+     "word": " phone.",
+     "start": 52.79,
+     "end": 53.11,
+     "probability": 0.49
+    },
+    {
+     "word": " Pears",
+     "start": 53.37,
+     "end": 53.79,
+     "probability": 1.0
+    },
+    {
+     "word": " are",
+     "start": 53.79,
+     "end": 53.96,
+     "probability": 1.0
+    },
+    {
+     "word": " cheaper",
+     "start": 53.96,
+     "end": 54.23,
+     "probability": 1.0
+    },
+    {
+     "word": " this",
+     "start": 54.23,
+     "end": 54.41,
+     "probability": 1.0
+    },
+    {
+     "word": " week,",
+     "start": 54.41,
+     "end": 54.87,
+     "probability": 0.55
+    },
+    {
+     "word": " though",
+     "start": 54.87,
+     "end": 55.14,
+     "probability": 1.0
+    },
+    {
+     "word": " bruised.",
+     "start": 55.14,
+     "end": 55.24,
+     "probability": 0.97
+    }
+   ],
+   "temperature": 0,
+   "noSpeechProb": 0,
+   "avgLogprob": -0.2047,
+   "compressionRatio": 1.358
+  }
+ ],
+ "language": "en",
+ "seekTime": null,
+ "timings": {
+  "audioLoading": 0.0,
+  "audioProcessing": 0.0,
+  "decoderLoadTime": 0.0,
+  "decoderSpecializationTime": 0,
+  "decodingFallback": 0,
+  "decodingFiltering": 0.0,
+  "decodingInit": 0.0,
+  "decodingKvCaching": 0.0,
+  "decodingLoop": 5.0,
+  "decodingNonPrediction": 0.0,
+  "decodingPredictions": 4.0,
+  "decodingSampling": 0.0,
+  "decodingWindowing": 0.0,
+  "decodingWordTimestamps": 0.0,
+  "encoderLoadTime": 0.0,
+  "encoderSpecializationTime": 0,
+  "encoding": 1.0,
+  "firstTokenTime": 1000.5,
+  "fullPipeline": 10.0,
+  "inputAudioSeconds": 60,
+  "logmels": 0.0,
+  "modelLoading": 1.0,
+  "pipelineStart": 1000.0,
+  "prefill": 0.0,
+  "prewarmLoadTime": 0,
+  "tokenizerLoadTime": 0.0,
+  "totalAudioProcessingRuns": 3,
+  "totalDecodingFallbacks": 0,
+  "totalDecodingLoops": 30,
+  "totalDecodingWindows": 3,
+  "totalEncodingRuns": 3,
+  "totalKVUpdateRuns": 30,
+  "totalLogmelRuns": 3,
+  "totalTimestampAlignmentRuns": 3
+ }
+}
