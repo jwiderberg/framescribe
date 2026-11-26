@@ -33,6 +33,8 @@ public struct CompletenessFigures: Sendable, Equatable {
     public var confirmed: Int? = nil
     public var unconfirmed: Int? = nil
     public var rejected: Int? = nil
+    /// How many other transcripts the cross-check had (the second pass, captions, WhisperKit).
+    public var sources: Int? = nil
 
     public init(summary: String, filledShare: Double? = nil, filledWords: Int? = nil, warning: String? = nil,
                 primaryWords: Int? = nil, limit: Double? = nil, aboveLimit: Bool = false) {
@@ -57,6 +59,9 @@ public struct CompletenessFigures: Sendable, Equatable {
         return "\(amount) had to be filled in from other sources, \(usual): the speech recognition missed part of the "
             + "speech. The filled-in words are marked in the report; check them against the recording."
     }
+
+    /// A count the tool can have reported: not negative and far below where sums overflow. nil otherwise.
+    public static func count(_ n: Int) -> Int? { (0...1_000_000_000_000).contains(n) ? n : nil }
 
     /// 0.0762 -> "7.6%"
     public static func percent(_ share: Double) -> String { String(format: "%.1f%%", share * 100) }
@@ -240,14 +245,16 @@ public enum EventDecoder {
                 let cf = Fields(c, kind: kind)
                 completeness = CompletenessFigures(summary: cf.optionalString("summary") ?? "",
                                                    filledShare: cf.optionalDouble("filled_share"),
-                                                   filledWords: cf.optionalDouble("filled_words").flatMap(Checked.int),
+                                                   filledWords: cf.optionalDouble("filled_words").flatMap(Checked.int).flatMap(CompletenessFigures.count),
                                                    warning: cf.optionalString("warning"),
-                                                   primaryWords: cf.optionalDouble("primary_words").flatMap(Checked.int),
+                                                   primaryWords: cf.optionalDouble("primary_words").flatMap(Checked.int).flatMap(CompletenessFigures.count),
                                                    limit: cf.optionalDouble("limit"),
                                                    aboveLimit: cf.optionalBool("above_limit") ?? false)
-                completeness?.confirmed = cf.optionalDouble("confirmed").flatMap(Checked.int)
-                completeness?.unconfirmed = cf.optionalDouble("unconfirmed").flatMap(Checked.int)
-                completeness?.rejected = cf.optionalDouble("rejected").flatMap(Checked.int)
+                let count = { (key: String) in cf.optionalDouble(key).flatMap(Checked.int).flatMap(CompletenessFigures.count) }
+                completeness?.confirmed = count("confirmed")
+                completeness?.unconfirmed = count("unconfirmed")
+                completeness?.rejected = count("rejected")
+                completeness?.sources = cf.optionalStrings("sources")?.count
             }
             return .runEnd(RunEndEvent(t: try f.double("t"), status: try f.string("status"),
                                        runDir: f.optionalString("run_dir") ?? "",

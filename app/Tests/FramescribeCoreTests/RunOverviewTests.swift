@@ -38,7 +38,7 @@ struct RunOverviewTests {
         #expect(o.rows.map(\.value) == ["8 min 6 s for 1:52:49 of video", "3 min 25 s, 10,827 words", "1 min 14 s, 763 key frames",
                                         "3 min 20 s", "54 steps"])
         #expect(o.completeness == "128 words (1.2%) were filled in from other sources, under the 3% warning limit. "
-                + "Of the 67 fills, 8 were confirmed by two sources and 59 by one. 6 candidates were rejected.")
+                + "Of the 67 fills, 8 were confirmed by two sources and 59 come from one source only. 6 candidates were rejected.")
     }
 
     @Test func cachedStagesSayFromTheCache() {
@@ -66,10 +66,38 @@ struct RunOverviewTests {
         func line(_ json: String) -> String? { RunOverview(progress([start, runEnd(json)])).completeness }
         #expect(line(#"{"summary":"s","filled_words":0}"#) == "Nothing had to be filled in from other sources.")
         #expect(line(#"{"summary":"s","filled_words":1,"filled_share":0.0004,"confirmed":1,"unconfirmed":0,"rejected":1,"limit":0.025,"above_limit":false}"#)
-                == "1 word (0.0%) was filled in from other sources, under the 2.5% warning limit. Of the 1 fill, 1 was confirmed by two sources and 0 by one. 1 candidate was rejected.")
+                == "1 word (0.0%) was filled in from other sources, under the 2.5% warning limit. The 1 fill was confirmed by two sources. 1 candidate was rejected.")
         #expect(line(#"{"summary":"s","filled_words":900,"filled_share":0.09,"limit":0.03,"above_limit":true}"#)
                 == "900 words (9.0%) were filled in from other sources, above the 3% warning limit.")
+        #expect(line(#"{"summary":"s","filled_words":900,"filled_share":0.09,"above_limit":true}"#)
+                == "900 words (9.0%) were filled in from other sources, above the warning limit.")
+        // one other transcript: nothing is called unconfirmed, since no second source existed
+        #expect(line(#"{"summary":"s","sources":["parakeet-pass2"],"filled_words":14,"filled_share":0.006,"confirmed":0,"unconfirmed":4,"rejected":1,"limit":0.03,"above_limit":false}"#)
+                == "14 words (0.6%) were filled in from other sources, under the 3% warning limit. The 4 fills come from the only other transcript, so no second source could confirm them. 1 candidate was rejected.")
         #expect(line(#"{"summary":"s"}"#) == nil)
+    }
+
+    @Test func impossibleCountsAreLeftOutAndNeverCrash() {
+        func line(_ json: String) -> String? { RunOverview(progress([start, runEnd(json)])).completeness }
+        #expect(line(#"{"summary":"s","filled_words":5,"confirmed":5e18,"unconfirmed":5e18,"rejected":-3}"#)
+                == "5 words were filled in from other sources.")
+        #expect(line(#"{"summary":"s","filled_words":-1}"#) == nil)
+        let notice = progress([start, runEnd(#"{"summary":"s","filled_words":9e18,"primary_words":9e18,"filled_share":0.5,"above_limit":true}"#)])
+            .completeness?.aboveLimitNotice
+        #expect(notice?.contains("50.0% of the transcript") == true)
+    }
+
+    @Test func aCountIsReadOnlyBeforeItsOwnUnit() {
+        #expect(RunOverview.leadingCount("12 frames", unit: "states") == nil)
+        #expect(RunOverview.leadingCount("12 states,", unit: "states") == 12)
+        #expect(RunOverview.leadingCount("12 states, 3 read", unit: "states") == 12)
+        #expect(RunOverview.leadingCount("12", unit: "states") == nil)
+        #expect(RunOverview.leadingCount("1234567890 states x", unit: "states") == nil)
+    }
+
+    @Test func partlyCachedSpeechSaysSo() {
+        let o = RunOverview(progress([start, end("asr.parakeet", "cached", 0, "5 words"), end("asr", "done", 1.2, "x"), runEnd(figures)]))
+        #expect(o.rows.first { $0.label == "Speech recognition" }?.value == "1 s, the rest from the cache, 10,827 words")
     }
 
     @Test func numbersAndSizes() {

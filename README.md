@@ -97,6 +97,7 @@ app/build_app.sh --sign "Developer ID Application: Your Name (TEAMID)" --notariz
 - **Stop** ends a run cleanly. Finished stages stay cached, so adding the same video again continues from there.
 - **Closing the window** while something runs (a video or the model download) does not stop it. Click the Dock icon to get the window back. With nothing running, closing the window quits the app. Quit (⌘Q) asks first if something runs.
 - **Output** goes to `~/Documents/framescribe/<video name>/`: the same files as `framescribe run`, plus `framescribe-app.log`. If that folder holds results of a different video with the same name, the app uses `<video name> 2`, `<video name> 3` and so on. Settings (⌘,) changes the output folder.
+- **A finished job shows an overview**: total time, time and counts per part of the work, the size of the output folder and how much of the transcript was filled in from other sources. The stages' technical notes are in the log.
 - **When more than usual was filled in** (see [Accuracy and completeness](#accuracy-and-completeness)) the finished job shows a warning with the share. The report is ready as usual.
 - **First start.** The app runs the same checks as [doctor](#doctor). It looks for `ffmpeg` in `/opt/homebrew/bin`, `/usr/local/bin` and the `PATH` of your login shell, because apps started from the Finder do not see your shell's `PATH`. If the speech model is missing, a button downloads it (about 2.5 GB, into the Hugging Face cache, shared with the command line tool). Nothing is downloaded until you click it.
 

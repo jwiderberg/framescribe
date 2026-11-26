@@ -38,12 +38,17 @@ public struct RunOverview: Sendable, Equatable {
         self.completeness = p.completeness.flatMap(Self.completenessLine)
     }
 
-    /// "3 min 23 s, 10,827 words", "from the cache, 763 key frames". nil when none of the stages ran or was cached.
+    /// "3 min 23 s, 10,827 words", "from the cache, 763 key frames", "1 s, the rest from the cache, 5 words". nil when
+    /// none of the stages ran or was cached.
     static func value(_ stages: [StageView], detail: String?) -> String? {
         let ran = stages.filter { $0.status == .done }
         let cached = stages.contains { $0.status == .cached }
         guard !ran.isEmpty || cached else { return nil }
-        let time = ran.isEmpty ? "from the cache" : spoken(ran.compactMap(\.wallSeconds).reduce(0, +))
+        var time = "from the cache"
+        if !ran.isEmpty {
+            time = spoken(ran.compactMap(\.wallSeconds).filter { $0.isFinite && $0 >= 0 }.reduce(0, +))
+            if cached { time += ", the rest from the cache" }
+        }
         return detail.map { "\(time), \($0)" } ?? time
     }
 
@@ -62,11 +67,21 @@ public struct RunOverview: Sendable, Equatable {
         if let share = c.filledShare { first = "\(grouped(filled)) \(filled == 1 ? "word" : "words") (\(CompletenessFigures.percent(share))) \(filled == 1 ? "was" : "were") filled in from other sources" }
         if let limit = c.limit {
             first += c.aboveLimit ? ", above the \(Self.limitText(limit)) warning limit" : ", under the \(Self.limitText(limit)) warning limit"
+        } else if c.aboveLimit {
+            first += ", above the warning limit"
         }
         var line = first + "."
         if let confirmed = c.confirmed, let unconfirmed = c.unconfirmed, confirmed + unconfirmed > 0 {
             let total = confirmed + unconfirmed
-            line += " Of the \(grouped(total)) \(total == 1 ? "fill" : "fills"), \(grouped(confirmed)) \(confirmed == 1 ? "was" : "were") confirmed by two sources and \(grouped(unconfirmed)) by one."
+            if c.sources == 1 {
+                // one other transcript: nothing can be confirmed by a second, so do not report "0 confirmed"
+                line += total == 1 ? " The 1 fill comes from the only other transcript, so no second source could confirm it."
+                    : " The \(grouped(total)) fills come from the only other transcript, so no second source could confirm them."
+            } else if total == 1 {
+                line += confirmed == 1 ? " The 1 fill was confirmed by two sources." : " The 1 fill comes from one source only."
+            } else {
+                line += " Of the \(grouped(total)) fills, \(grouped(confirmed)) \(confirmed == 1 ? "was" : "were") confirmed by two sources and \(grouped(unconfirmed)) \(unconfirmed == 1 ? "comes" : "come") from one source only."
+            }
         }
         if let rejected = c.rejected, rejected > 0 {
             line += " \(grouped(rejected)) \(rejected == 1 ? "candidate was" : "candidates were") rejected."

@@ -198,7 +198,7 @@ The CLI shows a full live status for the whole run; a long run must never look h
     `run_end` also carries `completeness` (the completeness figures as in `run.json`, plus `summary`, the line the
     `asr` stage shows; `above_limit`, `limit` and `warning` say whether more than `--max-filled-share` was filled in;
     for a transcript `--strict-completeness` refused, its figures; `null` without a cross-checked transcript) and
-    `warnings` (layout detection, the speech backends' chunk warnings, the above-limit warning), so a host shows them
+    `warnings` (layout detection, the speech backends' chunk warnings, the above-limit warning), so a host has them (the Mac app counts them and leaves the text to the log: a finished job shows an overview of the run, built from `stage_end` and `run_end`: times, word and key frame counts and the completeness figures)
     without reading `report.md`. Both were added later: a host must accept a `run_end` without them.
   - A failed `stage_end` and a failed or interrupted `run_end` carry `error_kind`, the machine-readable reason a host
     can act on without reading `error`: `no_audio` (the video has no audio stream), `incomplete_transcript`
@@ -500,7 +500,7 @@ non-black" mask, finds connected rectangular regions and takes the largest as `c
 
 - `parakeet` (`asr.parakeet`) — in-process. The audio is cut into chunks at pauses: about 30 s (`chunk_seconds`), at the
   centre of the longest pause within 5 s of the target, else within 10 s, never longer than 40 s
-  (`chunk_max_seconds`); where there is no pause at all, at the widest gap between two decoded words, with a warning.
+  (`chunk_max_seconds`); where there is no pause at all, at the widest gap between two decoded words, with a warning. Where the decode has no two words near the planned cut either (music, noise: sound without pauses and without words), the cut stays where it was planned, or moves to the end of a lone word lying across it or within 0.25 s of it, so that the word is kept whole from that decode. A missing pause or word boundary never fails a run.
   Each chunk is decoded with 1 s of audio before its cut and 2 s after its end, without digital silence; the words
   found in that context belong to the neighbouring chunks and are dropped (every word belongs to the chunk its start
   falls in). A word that the chunks on both sides of a cut decoded (the first one in its context after the cut, timed

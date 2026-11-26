@@ -3,8 +3,9 @@ import pytest
 
 from framescribe import chunking
 from framescribe.chunking import Levels, read_wav, write_wav
-from framescribe.models import Word
-from framescribe.stages.asr_parakeet import BARE_MIN_WORDS, is_bare, plan_cuts, word_boundary_cut
+from framescribe.models import Cut, Word
+from framescribe.stages.asr_parakeet import BARE_MIN_WORDS, is_bare, plan_cuts, plan_offset_cuts, word_boundary_cut
+from framescribe.stages.asr_parakeet import gaps_near as chunking_gaps
 
 RATE = 16000
 
@@ -133,5 +134,27 @@ def test_no_pause_cut_without_two_words_near_it_stays_put_and_never_fails():
         cut = word_boundary_cut(words, 40.0, 5.0, levels)
         assert cut.kind == "no_pause" and cut.time == pytest.approx(40.0) and cut.pause_seconds == 0.0
     # one word across the cut: the cut goes to its nearer edge, so the word stays whole
+    # one word across the cut: the cut goes to its end, never its start, so the word is kept from this decode (the
+    # next decode can time it just before a cut at its start, where it would be dropped as context)
     assert word_boundary_cut([w("long", 39.0, 40.2)], 40.0, 5.0, levels).time == pytest.approx(40.2)
-    assert word_boundary_cut([w("long", 39.9, 41.5)], 40.0, 5.0, levels).time == pytest.approx(39.9)
+    assert word_boundary_cut([w("long", 39.9, 41.5)], 40.0, 5.0, levels).time == pytest.approx(41.5)
+    # a word that starts or ends a few frames from the cut counts as across it
+    assert word_boundary_cut([w("next", 40.08, 41.0)], 40.0, 5.0, levels).time == pytest.approx(41.0)
+    assert word_boundary_cut([w("prev", 39.0, 39.9)], 40.0, 5.0, levels).time == pytest.approx(39.9)
+    assert word_boundary_cut([w("far", 40.5, 41.0)], 40.0, 5.0, levels).time == pytest.approx(40.0)
+
+
+def test_two_touching_words_are_a_gap_to_cut_in():
+    words = [w("a", 39.0, 39.52), w("b", 39.52, 40.3)]
+    assert chunking_gaps(words, 40.0, 5.0) == [(pytest.approx(0.0), pytest.approx(39.52))]
+    assert word_boundary_cut(words, 40.0, 5.0, Levels(noise(60), RATE)).time == pytest.approx(39.52)
+
+
+def test_the_second_pass_cuts_a_long_tail_again_and_never_fails():
+    """One first-pass cut early in long audio without pauses: the tail after the offset cut is longer than a chunk."""
+    levels = Levels(noise(200), RATE)
+    first = [Cut(time=30.0, kind="no_pause", level_db=-20.0, pause_seconds=0.0)]
+    cuts = plan_offset_cuts(levels, first, 200.0, 40.0)
+    edges = [0.0, *(c.time for c in cuts), 200.0]
+    assert all(0 < b - a <= 40.0 for a, b in zip(edges, edges[1:])), edges
+    assert all(c.kind == "no_pause" for c in cuts)
