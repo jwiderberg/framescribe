@@ -135,8 +135,12 @@ def plan_offset_cuts(levels: Levels, first: list[Cut], total: float, maximum: fl
         else:
             cuts.append(Cut(time=pause.centre, kind="pause", level_db=levels.at(pause.centre), pause_seconds=pause.seconds))
         last = cuts[-1].time
-    if total - last > maximum:
-        raise StageError(f"the second pass's last chunk {last:.2f}-{total:.2f} s is longer than {maximum:g} s")
+    while total - last > maximum:
+        # the tail after the last cut is too long for one chunk: more cuts, moved to a word boundary when decoded.
+        # Never a failure: the second pass only cross-checks the first
+        near = last + max(maximum - NO_PAUSE_SHIFT_SECONDS, maximum / 2)
+        cuts.append(Cut(time=near, kind="no_pause", level_db=levels.at(near), pause_seconds=0.0))
+        last = near
     return cuts
 
 
@@ -147,11 +151,19 @@ def is_bare(words: list[Word]) -> bool:
 
 
 def word_boundary_cut(words: list[Word], near: float, within: float, levels: Levels) -> Cut:
-    """A `no_pause` cut in the middle of the widest gap between two words within `within` seconds of `near`."""
+    """A `no_pause` cut in the middle of the widest gap between two words within `within` seconds of `near`.
+    Where the decode has no two words that close (music, noise, a language the model does not write down: sound
+    without a pause and without words), the cut stays at `near`, or moves to the nearer edge of the one word that
+    lies across it. It never fails: audio without words there loses nothing to a cut."""
     gaps = [(b.start - a.end, (a.end + b.start) / 2) for a, b in zip(words, words[1:])
             if abs((a.end + b.start) / 2 - near) <= within]
     if not gaps:
-        raise StageError(f"no word boundary within {within:.1f} s of {near:.2f} s to cut the audio at")
+        across = [w for w in words if w.start < near < w.end]
+        t = near
+        if across:
+            w = across[0]
+            t = w.end if w.end - near <= near - w.start else w.start
+        return Cut(time=t, kind="no_pause", level_db=levels.at(t), pause_seconds=0.0)
     gap, t = max(gaps, key=lambda g: (g[0], -abs(g[1] - near)))
     return Cut(time=t, kind="no_pause", level_db=levels.at(t), pause_seconds=max(0.0, gap))
 
@@ -295,8 +307,10 @@ def decode_pass(model, samples: np.ndarray, rate: int, levels: Levels, planned: 
                 span = decode(a, end, end)
                 cut = word_boundary_cut(span, planned_cut.time, within, levels)
                 chunk = [w for w in span if w.start < cut.time]
-                warning(f"{label}no pause near {planned_cut.time:.2f} s: cut at {cut.time:.2f} s between two words "
-                        f"({cut.pause_seconds:.2f} s apart, {cut.level_db:.1f} dBFS)")
+                where = (f"between two words ({cut.pause_seconds:.2f} s apart, {cut.level_db:.1f} dBFS)"
+                         if cut.pause_seconds > 0 else f"where the decode has no two words to cut between "
+                         f"({cut.level_db:.1f} dBFS: sound without speech the model writes down)")
+                warning(f"{label}no pause near {planned_cut.time:.2f} s: cut at {cut.time:.2f} s {where}")
             else:
                 cut = planned_cut
                 end = audio_seconds if cut is None else cut.time

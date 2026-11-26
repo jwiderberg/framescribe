@@ -124,3 +124,14 @@ def test_with_a_maximum_no_chunk_is_longer_and_the_widened_search_stays_inside_i
     assert [c.time for c in cuts[:4]] == pytest.approx([33.15, 60.15, 99.15, 129.15], abs=0.03)
     edges = [0.0, *(c.time for c in cuts), 200.0]
     assert all(b - a <= 40.0 + 1e-9 for a, b in zip(edges, edges[1:]))
+
+
+def test_no_pause_cut_without_two_words_near_it_stays_put_and_never_fails():
+    """Sound without a pause and without words (music, noise): the decode has nothing to cut between."""
+    levels = Levels(noise(60), RATE)
+    for words in ([], [w("far", 2.0, 2.5), w("away", 2.6, 3.0)], [w("alone", 30.0, 30.4)]):
+        cut = word_boundary_cut(words, 40.0, 5.0, levels)
+        assert cut.kind == "no_pause" and cut.time == pytest.approx(40.0) and cut.pause_seconds == 0.0
+    # one word across the cut: the cut goes to its nearer edge, so the word stays whole
+    assert word_boundary_cut([w("long", 39.0, 40.2)], 40.0, 5.0, levels).time == pytest.approx(40.2)
+    assert word_boundary_cut([w("long", 39.9, 41.5)], 40.0, 5.0, levels).time == pytest.approx(39.9)
