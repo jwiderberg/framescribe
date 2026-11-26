@@ -132,20 +132,12 @@ struct JobDetail: View {
         }
     }
 
+    /// The stages' technical notes (which decode of a chunk was kept, where a cut fell) are for the logs. The job
+    /// view only says that there are some. What matters to a reader is in the Completeness line above.
     @ViewBuilder private var warnings: some View {
-        if !job.progress.warnings.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Warnings (\(job.progress.warnings.count))").font(.subheadline.weight(.semibold))
-                ForEach(Array(job.progress.warnings.prefix(20).enumerated()), id: \.offset) { _, w in
-                    Label(w, systemImage: "exclamationmark.triangle")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
-                        .textSelection(.enabled)
-                }
-                if job.progress.warnings.count > 20 {
-                    Text("… and \(job.progress.warnings.count - 20) more in the stage logs.").font(.callout).foregroundStyle(.secondary)
-                }
-            }
+        let n = job.progress.warnings.count
+        if n > 0 {
+            Text("\(n) technical \(n == 1 ? "note" : "notes") in the log.").font(.callout).foregroundStyle(.secondary)
         }
     }
 
