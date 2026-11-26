@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Literal
 
+from pydantic import AfterValidator, ConfigDict, Field, field_validator
 from pydantic import BaseModel as _PydanticModel
-from pydantic import ConfigDict, Field, field_validator
+
+from .fmt import PLAIN, PlainText
 
 SCHEMA_VERSION = 1
 MAX_SECONDS = 1e7  # no time in any artifact is this large (115 days); a larger one is an error, not an overflow later
@@ -15,6 +18,30 @@ Seconds = Annotated[float, Field(ge=0, le=MAX_SECONDS)]
 
 KEYFRAME_PATH = r"^frames/s\d{4,}_t\d{2,}-\d{2}-\d{2}\.jpg$"  # what the visual stage writes (visual.keyframe_name)
 AUDIO_WAV = "work/audio.wav"  # what the ingest stage writes
+
+# The names of transcript sources and backends (parakeet, parakeet-pass2, whisperkit, captions, import) and of the
+# reasons a gap was rejected (repeats-adjacent, fragment, no-speech), wherever an artifact holds one: lower-case
+# letters, digits, ., _ and -, at most 40. Anything else, from an imported transcript JSON or a cached artifact, is
+# not one framescribe wrote and does not validate.
+NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9._-]{0,39}")
+
+
+def _name(value: str) -> str:
+    if not NAME_PATTERN.fullmatch(value):
+        raise ValueError(f"not a source or reason name framescribe writes (lower-case letters, digits, '.', '_' and "
+                         f"'-', at most 40 characters): {value[:60]!r}")
+    return value
+
+
+def _source_ref(value: str) -> str:
+    """A name, or import:FILE NAME (the transcript file an import came from)."""
+    if value.startswith("import:") and 0 < len(value) - 7 <= 255 and value.isprintable():
+        return value
+    return _name(value)
+
+
+Name = Annotated[str, AfterValidator(_name)]
+SourceRef = Annotated[str, AfterValidator(_source_ref)]
 
 
 class BaseModel(_PydanticModel):
@@ -120,14 +147,14 @@ class Cut(BaseModel):
 class AsrPass(BaseModel):
     """Another decode of the same audio by the same backend, on its own cut grid: a cross-check, not merged."""
 
-    name: str
+    name: Name
     words: list[Word]
     cuts: list[Cut]
 
 
 class AsrArtifact(Artifact):
     schema_version: int = 2
-    backend: str
+    backend: Name
     model: str
     language: str | None
     words: list[Word]
@@ -150,7 +177,7 @@ class TranscriptWord(Word):
 
     start: Seconds
     end: Seconds
-    source: str | None = Field(default=None, description="filled words: the source whose text was used")
+    source: Name | None = Field(default=None, description="filled words: the source whose text was used")
     filled: bool = False
     confirmed: bool | None = Field(default=None, description="filled words: True when two or more sources have it")
 
@@ -162,8 +189,8 @@ class Gap(BaseModel):
     end: float
     text: str
     words: int
-    sources: list[str] = Field(description="every source that has this gap")
-    chosen: str = Field(description="the source whose text is used")
+    sources: list[Name] = Field(description="every source that has this gap")
+    chosen: Name = Field(description="the source whose text is used")
     status: Literal["confirmed", "unconfirmed", "rejected"] = Field(
         description="confirmed: found by two or more sources, and every filled word (normalised) is in at least two "
                     "sources within the time tolerance; unconfirmed: filled otherwise; rejected: not filled, see reason")
@@ -175,17 +202,17 @@ class Gap(BaseModel):
 class Completeness(BaseModel):
     """How much of the transcript came from the primary backend and what was filled in from which source."""
 
-    primary: str
+    primary: Name
     primary_words: int
-    sources: list[str] = Field(description="the cross-check sources compared with the primary")
+    sources: list[Name] = Field(description="the cross-check sources compared with the primary")
     unavailable: list[str] = Field(default_factory=list, description="cross-check sources that were not available, and why")
     filled_words: int
-    filled_by_source: dict[str, int]
+    filled_by_source: dict[Name, int]
     filled_share: float = Field(description="filled words / all words of the transcript")
     confirmed: int = Field(description="gaps found in two or more sources (filled)")
     unconfirmed: int = Field(description="gaps found in one source (filled)")
     rejected: int = Field(description="gaps not filled, with the reason in `gaps`")
-    rejected_by_reason: dict[str, int] = Field(default_factory=dict, description="rejected gaps per reason code")
+    rejected_by_reason: dict[Name, int] = Field(default_factory=dict, description="rejected gaps per reason code")
     gaps: list[Gap] = Field(default_factory=list)
     limit: float | None = Field(default=None, description="the run's --max-filled-share")
     above_limit: bool = Field(default=False, description="the filled share is above `limit`: the transcript is kept, "
@@ -193,23 +220,25 @@ class Completeness(BaseModel):
     warning: str | None = Field(default=None, description="set when the filled share is above the limit: how much was "
                                 "filled in, in words")
 
-    def summary(self) -> str:
-        """One line: what the primary was cross-checked against and what was filled in."""
+    def summary(self, out: PlainText = PLAIN) -> str:
+        """One line: what the primary was cross-checked against and what was filled in. `out`: how the line is put
+        together, fmt.PLAIN for a terminal or a log, mdtext.MARKDOWN for a document (every value escaped)."""
+        f, join = out.fmt, out.join
         if self.sources == ["parakeet-pass2"]:
-            against = "cross-checked against the second parakeet pass only (no other transcript available)"
+            against = f("cross-checked against the second parakeet pass only (no other transcript available)")
         elif self.sources:
             names = [SOURCE_NAMES.get(s, s) for s in self.sources]
-            against = "cross-checked against " + (" and ".join(names) if len(names) <= 2
-                                                   else ", ".join(names[:-1]) + " and " + names[-1])
+            listed = join(" and ", names) if len(names) <= 2 else f("{} and {}", join(", ", names[:-1]), names[-1])
+            against = f("cross-checked against {}", listed)
         else:
-            against = "no cross-check source"
-        by = ", ".join(f"{n} from {s}" for s, n in sorted(self.filled_by_source.items())) or "none"
-        reasons = ", ".join(f"{n} {r}" for r, n in sorted(self.rejected_by_reason.items()))
-        above = (f"; ABOVE THE USUAL {self.limit:.1%}: check the filled-in words"
-                 if self.above_limit and self.limit is not None else "")
-        return (f"{against}; filled {self.filled_words} words ({self.filled_share:.1%}; {by}): {self.confirmed} "
-                f"confirmed, {self.unconfirmed} unconfirmed, {self.rejected} rejected gaps"
-                + (f" ({reasons})" if reasons else "") + above)
+            against = f("no cross-check source")
+        by = join(", ", [f("{} from {}", n, s) for s, n in sorted(self.filled_by_source.items())]) or f("none")
+        reasons = join(", ", [f("{} {}", n, r) for r, n in sorted(self.rejected_by_reason.items())])
+        above = (f("; ABOVE THE USUAL {}: check the filled-in words", f"{self.limit:.1%}")
+                 if self.above_limit and self.limit is not None else f(""))
+        return f("{}; filled {} words ({}; {}): {} confirmed, {} unconfirmed, {} rejected gaps{}{}", against,
+                 self.filled_words, f"{self.filled_share:.1%}", by, self.confirmed, self.unconfirmed, self.rejected,
+                 f(" ({})", reasons) if reasons else f(""), above)
 
 
 SOURCE_NAMES = {"parakeet-pass2": "the second parakeet pass", "whisperkit": "WhisperKit",
@@ -233,10 +262,10 @@ class TranscriptSegment(BaseModel):
 
 class TranscriptArtifact(Artifact):
     schema_version: int = 3
-    primary: str
+    primary: Name
     segments: list[TranscriptSegment]
-    alternates: dict[str, list[Segment]] = Field(default_factory=dict)
-    sources: list[str]
+    alternates: dict[Name, list[Segment]] = Field(default_factory=dict)
+    sources: list[SourceRef]
     completeness: Completeness | None = Field(default=None, description="None for an imported transcript")
 
 
@@ -403,7 +432,7 @@ class TimelineArtifact(Artifact):
     source: str = Field(description="the source video's file name, without its folder (timeline.json is shared; "
                                     "run.json keeps the full path)")
     duration: Seconds
-    asr_backend: str
+    asr_backend: Name
     step_min_seconds: float
     step_max_seconds: float
     chrome: list[str] = Field(description="normalised on-screen lines present in most states (navigation, sidebar)")

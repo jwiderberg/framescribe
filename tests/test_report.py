@@ -392,7 +392,8 @@ class TestMarkdown:
         figures = dict(figures={"above_limit": True, "limit": 0.03, "warning": "9 of the transcript's 109 words (8.3%) were filled in"})
         md = self._rendered(["parakeet-pass2"], max_filled_share=0.03, **figures)
         row = next(x for x in md.split("\n") if x.startswith("| Completeness |"))
-        assert row.startswith("| Completeness | **ABOVE THE USUAL LEVEL: 9 of the transcript's 109 words (8.3%) were filled in.**")
+        # the warning is read from the artifact: escaped like any other text from there
+        assert row.startswith("| Completeness | **ABOVE THE USUAL LEVEL: 9 of the transcript's 109 words \\(8.3%\\) were filled in.**")
         assert "ABOVE THE USUAL 3.0%: check the filled-in words" in row  # the summary says it too
         plain = next(x for x in self._rendered(["parakeet-pass2"], max_filled_share=0.03).split("\n")
                      if x.startswith("| Completeness |"))

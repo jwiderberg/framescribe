@@ -40,7 +40,9 @@ Issues = "https://github.com/jwiderberg/framescribe/issues"
 framescribe = "framescribe.cli:app"
 
 [dependency-groups]
-dev = ["pytest>=8", "pyyaml>=6"]  # pyyaml: tests/test_release.py reads the workflow
+# pyyaml: tests/test_release.py reads the workflow. cmarkgfm: GitHub's own Markdown renderer (cmark-gfm), the tests
+# render report.md and transcript.md with it
+dev = ["pytest>=8", "pyyaml>=6", "cmarkgfm>=2024.11.20"]
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]

@@ -15,7 +15,7 @@ from .fmt import terminal_text
 from .pipeline import FORCE_ALL, run_pipeline
 from .proc import Terminated, install_termination_handlers
 from .stages.base import StageError
-from .status import ProgressMode, make_renderer
+from .status import ProgressMode, escape_hidden, make_renderer
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Turn a long screen recording with spoken commentary into a Markdown evidence report.")
 
@@ -32,7 +32,7 @@ def _parse_rect(value: str | None) -> tuple[int, int, int, int] | None:
 
 def _show_version(value: bool) -> None:
     if value:
-        typer.echo(f"framescribe {__version__}")
+        _echo(f"framescribe {__version__}")
         raise typer.Exit()
 
 
@@ -43,8 +43,14 @@ def main(
     pass
 
 
+def _echo(text: object, err: bool = False) -> None:
+    """Every line the commands print goes through here: no control or invisible format character from a path, an
+    environment variable or a message reaches the terminal (fmt.terminal_text). JSON events are printed as data."""
+    typer.echo(terminal_text(text, keep_newlines=True), err=err)
+
+
 def _fail(message: str, code: int = 2) -> typer.Exit:
-    typer.echo(f"error: {terminal_text(message, keep_newlines=True)}", err=True)
+    _echo(f"error: {message}", err=True)
     return typer.Exit(code)
 
 
@@ -57,7 +63,10 @@ def doctor(
     Exit status 0 when everything required is present, 1 otherwise. Does not use the network.
     """
     checks = doctor_checks.run_checks(Config().with_env_defaults())
-    typer.echo(json.dumps(doctor_checks.as_dict(checks), indent=2) if as_json else doctor_checks.format_text(checks))
+    if as_json:
+        typer.echo(json.dumps(doctor_checks.as_dict(checks), indent=2))  # ensure_ascii: every character escaped
+    else:
+        _echo(doctor_checks.format_text(checks))
     raise typer.Exit(0 if doctor_checks.all_required_ok(checks) else 1)
 
 
@@ -84,10 +93,11 @@ def setup(
 
     def emit(event: str, **fields: Any) -> None:
         if as_json:
-            print(json.dumps({"event": event, "t": round(time.perf_counter() - t_start, 3), **fields}, ensure_ascii=False), flush=True)
+            print(escape_hidden(json.dumps({"event": event, "t": round(time.perf_counter() - t_start, 3), **fields},
+                                           ensure_ascii=False)), flush=True)
 
     def say(text: str) -> None:
-        typer.echo(text, err=as_json)  # stdout carries only events in json mode
+        _echo(text, err=as_json)  # stdout carries only events in json mode
 
     def fail(message: str, code: int = 1) -> typer.Exit:
         emit("setup_end", status="failed", detail=None, error=message)
@@ -192,9 +202,9 @@ def run(
     try:
         run_pipeline(video, out, cfg, force or [], sink=make_renderer(progress), run_dir=run_dir)
     except StageError as e:
-        typer.echo(f"error: {terminal_text(e, keep_newlines=True)}", err=True)
+        _echo(f"error: {e}", err=True)
         raise typer.Exit(2) from None
     except KeyboardInterrupt as e:
         terminated = isinstance(e, Terminated)
-        typer.echo(f"{'terminated' if terminated else 'interrupted'}; finished stages stay cached", err=True)
+        _echo(f"{'terminated' if terminated else 'interrupted'}; finished stages stay cached", err=True)
         raise typer.Exit(128 + e.signum if isinstance(e, Terminated) else 130) from None

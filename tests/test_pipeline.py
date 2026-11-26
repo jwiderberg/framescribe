@@ -378,14 +378,14 @@ def test_an_overridden_completeness_limit_and_the_speech_warnings_are_said_in_th
     _, run_dir = run_pipeline(letterbox_video, tmp_path / "out", cfg)
     report = (run_dir / "report.md").read_text()
     row = next(x for x in report.split("\n") if x.startswith("| Completeness |"))
-    assert "| **ABOVE THE USUAL LEVEL: 5 of the transcript's 12 words (41.7%) were filled in" in row
+    assert "| **ABOVE THE USUAL LEVEL: 5 of the transcript's 12 words \\(41.7%\\) were filled in" in row
     assert "more than the usual 3.0%" in row and "check them against the recording.**" in row
     assert "| Speech recognition warnings | 2 chunks kept without punctuation, 1 chunk that stayed empty" in report
     said = next(x for x in report.split("\n") if x.startswith("- SAID lines"))
     assert "from a second decode of the audio, the only other source" in said and "another speech recognition" not in said
     transcript_md = (run_dir / "transcript.md").read_text()
     top = transcript_md.split("**[")[0]  # before the first segment
-    assert "**Completeness: ABOVE THE USUAL LEVEL: 5 of the transcript's 12 words (41.7%)" in top
+    assert "**Completeness: ABOVE THE USUAL LEVEL: 5 of the transcript's 12 words \\(41.7%\\)" in top
     # within the limit nothing of this is said
     quiet = replace(cfg, max_filled_share=0.5)
     _, run_dir = run_pipeline(letterbox_video, tmp_path / "out", quiet)

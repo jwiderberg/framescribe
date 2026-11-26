@@ -125,6 +125,24 @@ wheels = [
 ]
 
 [[package]]
+name = "cmarkgfm"
+version = "2025.10.22"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cffi" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8f/0c/5010c87ceba51854dad42f45a3d28a3c67e81a21cfed8b20c34688aaa1b6/cmarkgfm-2025.10.22.tar.gz", hash = "sha256:5bec61007b65b919488442c838c58a6c8bf4741f5103c593b2ef180d39818eda", size = 146727, upload-time = "2025-10-22T23:13:22.639Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/e2/72098f7fccd3e7761a07b3f2be426fb2ee8cab21dd8e5215bed5fe6ec0a2/cmarkgfm-2025.10.22-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:74a22cf245b32a918325a2895a9a3f6e737f0b10368b39e9a99d9e76fda4a78a", size = 124616, upload-time = "2025-10-22T22:26:12.911Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/a7/b8f20e4012cb4ebd9862423d6eb90689adacd3aafaac261c3c52db328195/cmarkgfm-2025.10.22-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:68368a18b90e2dd795182c6fc34cee3180b2c8b380cad50c7fbd5563abff01b1", size = 446618, upload-time = "2025-10-22T23:13:36.811Z" },
+    { url = "https://files.pythonhosted.org/packages/15/9e/f547d80ccaa4c7b6cffbc4af1bda508c1ba2f50733d5528beff81df1dd42/cmarkgfm-2025.10.22-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:115fd0feaf93806b3a7c980615649b3c76a49c9dd89d5ea0c6240e10c6c71cee", size = 449859, upload-time = "2025-10-22T23:13:38.23Z" },
+    { url = "https://files.pythonhosted.org/packages/16/2a/b8d9897db40e4575bc2caff7d6d7c2c99f0c06177e3e3e5e798cf490611f/cmarkgfm-2025.10.22-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:69ccb4afa039f5b81d35de95fe935405577e115f367dda534309d66a455db5cb", size = 442251, upload-time = "2025-10-22T23:13:39.272Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/71/d99e03fb8176392525f1ce9ceba67f8b111524e8c1477dea69cbdcb9ae22/cmarkgfm-2025.10.22-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:9bed95895226cba280a96543f49d46b469b9e42528b119f280f9852cd4fc7749", size = 448305, upload-time = "2025-10-22T23:13:40.311Z" },
+    { url = "https://files.pythonhosted.org/packages/31/26/29db64e5cf6937b2bad8a4a0fe31459dbf9250ce225bbe1c891328ba0457/cmarkgfm-2025.10.22-cp312-cp312-win32.whl", hash = "sha256:fdf0a4689fb6febcbcaf675f2011a8074b100a4fc323f5754f627183ce492694", size = 116527, upload-time = "2025-10-22T22:34:50.768Z" },
+    { url = "https://files.pythonhosted.org/packages/42/31/e1356399d49f2a9e255b98a406c03a8c78848d3a4b41fe300d6c6a749276/cmarkgfm-2025.10.22-cp312-cp312-win_amd64.whl", hash = "sha256:fc14ae28769b501f61a7364a1188c827dfcf839213f02d0159801bb71c8ae989", size = 127292, upload-time = "2025-10-22T22:34:51.954Z" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -179,6 +197,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "cmarkgfm" },
     { name = "pytest" },
     { name = "pyyaml" },
 ]
@@ -199,6 +218,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "cmarkgfm", specifier = ">=2024.11.20" },
     { name = "pytest", specifier = ">=8" },
     { name = "pyyaml", specifier = ">=6" },
 ]

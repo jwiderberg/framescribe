@@ -27,7 +27,8 @@ from ..mdtext import MARKS, marked_text  # noqa: F401  (MARKS: the filled-word m
 from ..safeio import atomic_write_text
 from .base import Context, Stage
 
-VERSION = 7  # 7: a share above the limit is kept with a warning (`above_limit`, `limit`) unless --strict-completeness
+VERSION = 8  # 8: an imported transcript JSON loses its completeness figures and fill flags (not this run's check)
+# 7: a share above the limit is kept with a warning (`above_limit`, `limit`) unless --strict-completeness
 NEAREST_CAPTION_SECONDS = 4.0
 NAME = "asr"
 FILENAME = "transcript.json"
