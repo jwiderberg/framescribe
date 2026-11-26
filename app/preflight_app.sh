@@ -76,8 +76,11 @@ main() {
         shift
     done
     [[ -n "$app" ]] || die "usage: preflight_app.sh [--allow-adhoc] APP"
-    [[ -d "$app/Contents" ]] || die "not an app bundle: $app"
-    APP="$(physical_bundle "$app")" || die "$BUNDLE_PROBLEM"
+    # what does not exist is not an app bundle; what exists but cannot be read, or is a link, is refused as that
+    [[ -e "$app" || -L "$app" ]] || die "not an app bundle: $app (it does not exist, or a folder above it cannot be entered)"
+    physical_bundle "$app" || die "$BUNDLE_PROBLEM"
+    APP="$BUNDLE_PATH"
+    [[ -d "$APP/Contents" ]] || die "not an app bundle: $app"
     SUPPORT="$HERE/Support"
     TMP="$(mktemp -d "${TMPDIR:-/tmp}/framescribe-preflight.XXXXXX")"
     FAILED=0

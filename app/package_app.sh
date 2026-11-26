@@ -30,7 +30,8 @@ main() {
         shift
     done
     [[ -n "$app" ]] || die "usage: package_app.sh [--out DIR] APP (an app bundle)"
-    app="$(physical_bundle "$app")" || die "$BUNDLE_PROBLEM"
+    physical_bundle "$app" || die "refused, nothing was written: $BUNDLE_PROBLEM"
+    app="$BUNDLE_PATH"
     check_bundle "$app" || die "refused, nothing was written: $BUNDLE_PROBLEM"
     [[ -n "$out" ]] || out="$(dirname "$app")"
     mkdir -p "$out"

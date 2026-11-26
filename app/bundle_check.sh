@@ -7,6 +7,10 @@
 #   app/bundle_check.sh --unpacked DIR   DIR must hold exactly one entry, the directory Framescribe.app, which is then
 #                                        checked like APP
 #
+# Every run that checks something ends with one RESULT line on stdout: "RESULT: passed", or "RESULT: refused: REASON"
+# with the same reason on stderr before it (exit 1, or 2 for a usage error). A bundle or folder that cannot be read,
+# listed or entered is a stated refusal, never a pass or an empty listing.
+#
 # The check: APP is a directory called Framescribe.app, not a symbolic link, and so are Contents, Contents/MacOS,
 # Contents/Resources, Contents/Resources/runtime, runtime/bin, runtime/lib and runtime/lib/python3.12, and
 # Contents/Info.plist and runtime/bin/python3.12 are regular files. No path in the bundle holds a newline or another
@@ -25,6 +29,7 @@ RUNTIME_PYTHON="Contents/Resources/runtime/bin/python3.12"  # the embedded Pytho
 EXPECTED_BUNDLE_ID="io.github.jwiderberg.framescribe"
 PLIST_VALUE_PATTERN='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 BUNDLE_PROBLEM=""
+BUNDLE_PATH=""
 
 bundle_refuse() { BUNDLE_PROBLEM="$*"; return 1; }
 
@@ -116,10 +121,22 @@ check_bundle() {
     check_bundle_enumerable "$1" && check_bundle_links "$1"
 }
 
-# physical_bundle PATH: the absolute path of the bundle with no symbolic link in it, refusing a link at PATH itself
+# physical_bundle PATH: sets BUNDLE_PATH to the absolute path of PATH with no symbolic link in it. Refuses (with
+# BUNDLE_PROBLEM, in the calling shell: call it directly, not in $(...)) a missing PATH, a link at PATH itself, one that
+# is not a directory, and one that cannot be listed or entered.
 physical_bundle() {
-    [[ -n "$1" && ! -L "$1" && -d "$1" ]] || { bundle_refuse "not a directory (or a symbolic link): $1"; return 1; }
-    (cd "$1" && pwd -P)
+    BUNDLE_PATH=""
+    [[ -n "$1" ]] || { bundle_refuse "no path given"; return 1; }
+    if [[ ! -e "$1" && ! -L "$1" ]]; then
+        bundle_refuse "does not exist, or a folder above it cannot be entered: $(visible_text "$1")"; return 1
+    fi
+    [[ ! -L "$1" && -d "$1" ]] || { bundle_refuse "not a directory (or a symbolic link): $(visible_text "$1")"; return 1; }
+    if [[ ! -r "$1" || ! -x "$1" ]]; then
+        bundle_refuse "cannot be read: the folder cannot be listed or entered (permissions): $(visible_text "$1")"
+        return 1
+    fi
+    BUNDLE_PATH="$(cd "$1" 2>/dev/null && pwd -P)" || {
+        bundle_refuse "cannot be read: the folder cannot be entered: $(visible_text "$1")"; return 1; }
 }
 
 # ---- finding Mach-O files by content --------------------------------------------------------------------------------
@@ -202,35 +219,65 @@ devid_team() {
 
 # ---- run as a command ----------------------------------------------------------------------------------------------
 
+BUNDLE_RESULT=""  # passed, or empty until the check passed; "none" for --help, which checks nothing
+
+bundle_usage() { BUNDLE_PROBLEM="usage: $*"; echo "$BUNDLE_PROBLEM" >&2; return 2; }
+
 bundle_check_main() {
     local app="" unpacked=""
     case "${1:-}" in
-        -h|--help) sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; return 0 ;;
-        --unpacked) [[ $# -eq 2 ]] || { echo "usage: bundle_check.sh --unpacked DIR" >&2; return 2; }; unpacked="$2" ;;
-        ""|-*) echo "usage: bundle_check.sh APP | --unpacked DIR" >&2; return 2 ;;
-        *) [[ $# -eq 1 ]] || { echo "usage: bundle_check.sh APP" >&2; return 2; }; app="$1" ;;
+        -h|--help) BUNDLE_RESULT=none; sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; return 0 ;;
+        --unpacked) [[ $# -eq 2 ]] || { bundle_usage "bundle_check.sh --unpacked DIR"; return 2; }; unpacked="$2" ;;
+        ""|-*) bundle_usage "bundle_check.sh APP | --unpacked DIR"; return 2 ;;
+        *) [[ $# -eq 1 ]] || { bundle_usage "bundle_check.sh APP"; return 2; }; app="$1" ;;
     esac
     if [[ -n "$unpacked" ]]; then
-        local dir entries=()
-        dir="$(physical_bundle "$unpacked")" || { echo "bundle_check.sh: $BUNDLE_PROBLEM" >&2; return 1; }
+        local dir entries=() listing_error
+        physical_bundle "$unpacked" || { echo "bundle_check.sh: refused: $BUNDLE_PROBLEM" >&2; return 1; }
+        dir="$BUNDLE_PATH"
+        # a folder that cannot be listed completely is refused, never counted as empty
+        if ! listing_error="$(find "$dir" -mindepth 1 -maxdepth 1 2>&1 >/dev/null)" || [[ -n "$listing_error" ]]; then
+            BUNDLE_PROBLEM="$(visible_text "$unpacked") cannot be listed: $(visible_text "${listing_error%%$'\n'*}")"
+            echo "bundle_check.sh: refused: $BUNDLE_PROBLEM" >&2; return 1
+        fi
         while IFS= read -r -d '' e; do entries+=("$e"); done < <(find "$dir" -mindepth 1 -maxdepth 1 -print0)
         if [[ ${#entries[@]} -ne 1 || "${entries[0]}" != "$dir/$BUNDLE_NAME" ]]; then
-            echo "bundle_check.sh: $unpacked must hold exactly one entry, $BUNDLE_NAME (found ${#entries[@]})" >&2
+            BUNDLE_PROBLEM="$(visible_text "$unpacked") must hold exactly one entry, $BUNDLE_NAME (found ${#entries[@]})"
+            echo "bundle_check.sh: $BUNDLE_PROBLEM" >&2
             return 1
         fi
         app="$dir/$BUNDLE_NAME"
     fi
-    app="$(physical_bundle "$app")" || { echo "bundle_check.sh: $BUNDLE_PROBLEM" >&2; return 1; }
+    physical_bundle "$app" || { echo "bundle_check.sh: refused: $BUNDLE_PROBLEM" >&2; return 1; }
+    app="$BUNDLE_PATH"
     if ! check_bundle "$app"; then echo "bundle_check.sh: refused: $BUNDLE_PROBLEM" >&2; return 1; fi
     local by_magic by_file
     by_magic="$(macho_by_magic "$app" | LC_ALL=C sort)"
     by_file="$(macho_by_file "$app" | LC_ALL=C sort)"
     if [[ "$by_magic" != "$by_file" ]]; then
+        BUNDLE_PROBLEM="the two ways of finding Mach-O files disagree"
         echo "bundle_check.sh: refused: the two ways of finding Mach-O files disagree:" >&2
         diff <(printf '%s\n' "$by_magic") <(printf '%s\n' "$by_file") | sed "s|$app/||" | head -10 >&2 || true
         return 1
     fi
     printf 'bundle_check.sh: %s passes the structure check (%s Mach-O files)\n' "$app" "$(grep -c . <<< "$by_magic" || true)"
+    BUNDLE_RESULT=passed
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then bundle_check_main "$@"; fi
+# on any exit of the command: the RESULT line, last. A failure that set no reason (an unexpected error under set -e)
+# still says that it failed and how.
+bundle_check_result() {
+    local rc="$1"
+    if [[ "$BUNDLE_RESULT" == none ]]; then return 0; fi
+    if [[ $rc -eq 0 && "$BUNDLE_RESULT" == passed ]]; then printf 'RESULT: passed\n'; return 0; fi
+    if [[ -z "$BUNDLE_PROBLEM" ]]; then
+        BUNDLE_PROBLEM="the check stopped at an unexpected error (exit $rc); see the message above"
+        echo "bundle_check.sh: refused: $BUNDLE_PROBLEM" >&2
+    fi
+    printf 'RESULT: refused: %s\n' "$BUNDLE_PROBLEM"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    trap 'bundle_check_result $?' EXIT
+    bundle_check_main "$@"
+fi

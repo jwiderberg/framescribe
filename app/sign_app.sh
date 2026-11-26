@@ -50,7 +50,8 @@ main() {
         shift
     done
     [[ -n "$app" ]] || die "usage: sign_app.sh [options] APP (see --help)"
-    APP="$(physical_bundle "$app")" || die "$BUNDLE_PROBLEM"
+    physical_bundle "$app" || die "refused, nothing was signed: $BUNDLE_PROBLEM"
+    APP="$BUNDLE_PATH"
     check_bundle "$APP" || die "refused, nothing was signed: $BUNDLE_PROBLEM"
     local support py
     support="$HERE/Support"

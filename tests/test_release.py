@@ -1263,6 +1263,91 @@ def test_an_unreadable_folder_or_file_is_a_stated_refusal(tmp_path, restore_mode
     assert p.stdout.rstrip().splitlines()[-1] == "RESULT: refused before any other check"
 
 
+UNREADABLE = "cannot be read: the folder cannot be listed or entered (permissions)"
+
+
+def last_line(r: subprocess.CompletedProcess) -> str:
+    return (r.stdout.rstrip().splitlines() or [""])[-1]
+
+
+@macos_only
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads everything")
+@pytest.mark.parametrize("mode", [0o000, 0o300, 0o100], ids=["no access", "enter but not list", "enter only"])
+def test_an_unreadable_bundle_is_a_stated_refusal_in_every_script(tmp_path, restore_modes, mode):
+    app = make_unsigned_bundle(tmp_path / "b")
+    app.chmod(mode)
+    restore_modes.append(app)
+    r = bundle_check(str(app))
+    assert r.returncode == 1 and f"bundle_check.sh: refused: {UNREADABLE}: {app}" in r.stderr, r.stderr
+    assert "Permission denied" not in r.stderr and last_line(r) == f"RESULT: refused: {UNREADABLE}: {app}"
+    s = sign(app, "--hardened")
+    assert s.returncode == 1 and f"sign_app.sh: refused, nothing was signed: {UNREADABLE}" in s.stderr, s.stderr
+    k = subprocess.run(["bash", str(PACKAGE), "--out", str(tmp_path / "dist"), str(app)], capture_output=True, text=True)
+    assert k.returncode == 1 and f"package_app.sh: refused, nothing was written: {UNREADABLE}" in k.stderr, k.stderr
+    p = preflight(app, "--allow-adhoc")
+    assert p.returncode == 2 and "not an app bundle" not in p.stdout + p.stderr, p.stdout + p.stderr
+    assert last_line(p) == f"RESULT: refused: {UNREADABLE}: {app}"
+
+
+@macos_only
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads everything")
+@pytest.mark.parametrize("mode", [0o000, 0o300, 0o100], ids=["no access", "enter but not list", "enter only"])
+def test_an_unpacked_folder_that_cannot_be_listed_is_refused_not_counted_empty(tmp_path, restore_modes, mode):
+    folder = tmp_path / "unpacked"
+    make_unsigned_bundle(folder)
+    folder.chmod(mode)
+    restore_modes.append(folder)
+    r = bundle_check("--unpacked", str(folder))
+    assert r.returncode == 1 and UNREADABLE in r.stderr and "found 0" not in r.stderr, r.stderr
+    assert "Permission denied" not in r.stderr and last_line(r) == f"RESULT: refused: {UNREADABLE}: {folder}"
+
+
+@macos_only
+def test_every_bundle_check_ends_with_a_result_line_and_every_refusal_states_its_reason(tmp_path):
+    good = make_unsigned_bundle(tmp_path / "good")
+    r = bundle_check(str(good))
+    assert r.returncode == 0 and last_line(r) == "RESULT: passed", r.stdout + r.stderr
+    assert last_line(bundle_check("--unpacked", str(tmp_path / "good"))) == "RESULT: passed"
+    help_run = bundle_check("--help")
+    assert help_run.returncode == 0 and "RESULT:" not in help_run.stdout.splitlines()[-1]
+    other = tmp_path / "other" / "Other.app"
+    other.mkdir(parents=True)
+    crowded = tmp_path / "crowded"
+    make_unsigned_bundle(crowded)
+    (crowded / "extra.txt").write_text("x")
+    named = make_unsigned_bundle(tmp_path / "named")
+    (named / "Contents" / "Resources" / "tab\there").write_text("x")
+    cases = {
+        "no argument": ((), 2, "usage: bundle_check.sh APP | --unpacked DIR"),
+        "two arguments": ((str(good), str(good)), 2, "usage: bundle_check.sh APP"),
+        "--unpacked without a folder": (("--unpacked",), 2, "usage: bundle_check.sh --unpacked DIR"),
+        "missing": ((str(tmp_path / "missing" / "Framescribe.app"),), 1, "does not exist"),
+        "a file": ((str(tmp_path / "good" / "Framescribe.app" / "Contents" / "Info.plist"),), 1, "not a directory"),
+        "another name": ((str(other),), 1, "the bundle must be called Framescribe.app"),
+        "a second entry": (("--unpacked", str(crowded)), 1, "must hold exactly one entry, Framescribe.app (found 2)"),
+        "a control character": ((str(named),), 1, "a path holds a newline or another control character"),
+    }
+    for name, (args, code, reason) in cases.items():
+        r = bundle_check(*args)
+        assert r.returncode == code, (name, r.returncode, r.stderr)
+        assert reason in r.stderr, (name, r.stderr)
+        result = last_line(r)
+        assert result.startswith("RESULT: refused: ") and reason in result, (name, result)
+
+
+@macos_only
+def test_an_unexpected_error_in_bundle_check_still_ends_with_a_result(tmp_path):
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "find").write_text("#!/bin/bash\nexit 3\n")
+    (stubs / "find").chmod(0o755)
+    app = make_unsigned_bundle(tmp_path / "b")
+    r = subprocess.run(["bash", str(CHECK), str(app)], capture_output=True, text=True,
+                       env={**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}"})
+    assert r.returncode != 0 and last_line(r).startswith("RESULT: refused: "), r.stdout + r.stderr
+    assert len(last_line(r)) > len("RESULT: refused: ")
+
+
 @macos_only
 def test_a_file_that_is_only_a_mach_o_magic_number_fails_the_preflight_with_a_result(tmp_path):
     """Four bytes, a Mach-O magic and nothing else: vtool cannot read it. The preflight used to stop there (set -e)
