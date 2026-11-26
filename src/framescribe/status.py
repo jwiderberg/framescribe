@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 import time
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, TextIO
@@ -157,8 +157,12 @@ class PlainRenderer:
         print(f"[{timestamp(t)}] {terminal_text(who):15} {terminal_text(text.replace(chr(10), " "))}", file=self.out, flush=True)
 
 
-# DEL, C1 controls and the bidirectional and other invisible format characters of fmt.strip_invisible
-_C1 = re.compile("[\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f\ufeff\ufff9-\ufffb\U000e0000-\U000e007f]")
+def escape_hidden(line: str) -> str:
+    """DEL, C1 controls and every format character (Unicode category Cf: bidirectional controls, zero-width and tag
+    characters, joiners too) as JSON escapes; the data stays the same, a JSON reader gets them back."""
+    if line.isascii():
+        return line
+    return "".join(json.dumps(c)[1:-1] if "\x7f" <= c <= "\x9f" or unicodedata.category(c) == "Cf" else c for c in line)
 
 
 class JsonRenderer:
@@ -170,7 +174,7 @@ class JsonRenderer:
     def __call__(self, ev: dict[str, Any]) -> None:
         # json.dumps escapes C0 controls itself; C1 controls (U+0080 to U+009F) and invisible format characters it
         # leaves raw, so they are escaped too (the data stays the same: a JSON reader gets them back)
-        line = _C1.sub(lambda m: json.dumps(m.group())[1:-1], json.dumps(ev, ensure_ascii=False))
+        line = escape_hidden(json.dumps(ev, ensure_ascii=False))
         print(line, file=self.out, flush=True)
 
 
