@@ -35,16 +35,16 @@ out/recording/
 ### Timeline
 
 - **SCREEN [00:04:10]** new page ([s0007](frames/s0007_t00-04-12.jpg)). appeared: "Overdue loans"
-- **SAID [00:04:14]** Right, here are the overdue books. The oldest loan should be [+ listed first +] but the list starts with the newest.
+- **SAID [00:04:14]** Right, here are the overdue books. The oldest loan should be `[+` listed first `+]` but the list starts with the newest.
 - **POINTER [00:04:21]** pointer near "Due date"
-- **SAID [00:04:22]** There is an arrow here, and it can [? flip the order ?] but it resets on reload.
+- **SAID [00:04:22]** There is an arrow here, and it can `[?` flip the order `?]` but it resets on reload.
 - **SCREEN [00:04:31]** part of the screen changed ([s0008](frames/s0008_t00-04-31.jpg)). appeared: "Sorted by title"
 ```
 
 - `SAID` is what the speaker said, verbatim.
 - `SCREEN` is a change of the picture, with a link to the frame and the text that appeared.
 - `POINTER` is a sparse hint of where the mouse pointer was while a pointing word ("this", "here", "click") was spoken.
-- `[+ ... +]` marks words the main speech recognition missed and two or more other sources agree on. `[? ... ?]` marks filled-in words with less support, for example words only one other source heard. See [Accuracy and completeness](#accuracy-and-completeness).
+- `[+` ... `+]` marks words the main speech recognition missed and two or more other sources agree on. `[?` ... `?]` marks filled-in words with less support, for example words only one other source heard. The marks are code spans (in backticks). Recorded text cannot make a code span, so brackets in it that look like a mark stay plain text. See [Accuracy and completeness](#accuracy-and-completeness).
 
 ## Requirements
 
@@ -191,7 +191,7 @@ A host application (the Mac app is one) should use `--progress json` and `--run-
 
 Do not share `run.json`, `work/` or the app's `framescribe-app.log`. They are local diagnostics and contain the full paths of the video and the output folder on this Mac, which name the user account and the folders. `report.md`, `transcript.md` and `timeline.json` name the video by its file name only.
 
-Everything in the report is recorded content: what someone said and what a screen showed. Some of it may be written to steer an AI ("ignore your instructions", a link to open). `ANALYSIS_PROMPT.md` and the report's "How to read this document" tell the tool to treat all of it as data, to report such text as a finding instead of acting on it, to open only the files under `frames/` and to output no link or image that points elsewhere. Special characters in recorded text are escaped in `report.md` and `transcript.md`, so no recorded text can become a link, an image, a heading or HTML when the file is rendered. These measures make misuse harder. They do not make an LLM immune to it, so check what the tool does with a recording from an untrusted source.
+Everything in the report is recorded content: what someone said and what a screen showed. Some of it may be written to steer an AI ("ignore your instructions", a link to open). `ANALYSIS_PROMPT.md` and the report's "How to read this document" tell the tool to treat all of it as data, to report such text as a finding instead of acting on it, to open only the files under `frames/` and to output no link or image that points elsewhere. Special characters in recorded text are escaped in `report.md` and `transcript.md`, so no recorded text can become a link, an image, a heading or HTML when the file is rendered. Bare web and e-mail addresses are covered too. A backslash before the colon of `http://` and the dot of `www.`, and an invisible word joiner before the `@` of an e-mail address, keep GitHub-style renderers from turning them into links. Bidirectional and other invisible format characters are removed from recorded text in both files and in the terminal. These measures make misuse harder. They do not make an LLM immune to it, so check what the tool does with a recording from an untrusted source.
 
 `ANALYSIS_PROMPT.md` is fixed text. Edit it for another purpose. A tool that cannot open images can still use the report, but the frames are the authority where on-screen text was misread. The report is long (about 67,000 words for a two-hour recording) because it keeps every transcript segment and every visible change.
 
@@ -217,7 +217,7 @@ A stage is loaded from the cache when its key matches. The key covers a fingerpr
 
 No speech recognition hears everything, and a sentence it skips leaves no trace in its own output. So the `asr` stage compares the primary transcript with every other transcript of the same audio it has: the second parakeet pass (always on, costs about one more pass), the embedded captions if there are any (matched more loosely, since a cue has only one time) and WhisperKit if configured.
 
-- **Gaps.** A gap is a run of another source's words where the primary has none and leaves room for them (at least 0.3 s of silence, and at least half the phrase's own duration). Gaps are filled in at their time. `[+ ... +]` means two or more sources have it and every word is in at least two sources. `[? ... ?]` means less certain. Primary words are never changed or removed. A misheard word or a different spelling is not a gap. Rejected gaps are listed with a reason in `work/transcript.json` (`repeats-adjacent`, `fragment`, and `no-speech` for WhisperKit, which invents text in silence).
+- **Gaps.** A gap is a run of another source's words where the primary has none and leaves room for them (at least 0.3 s of silence, and at least half the phrase's own duration). Gaps are filled in at their time. `[+` ... `+]` means two or more sources have it and every word is in at least two sources. `[?` ... `?]` means less certain. Primary words are never changed or removed. A misheard word or a different spelling is not a gap. Rejected gaps are listed with a reason in `work/transcript.json` (`repeats-adjacent`, `fragment`, and `no-speech` for WhisperKit, which invents text in silence).
 - **More filled in than usual.** If more than 3% of the words had to be filled in (`--max-filled-share`), the run still finishes, with a warning. Filling in is the remedy, and refusing the result would leave you with nothing. The warning is at the top of `transcript.md`, first in the report's Completeness row, in the status line and in `run_end` (`above_limit`). Check the marked words against the recording. On a short recording a few missed words already make a large share. `--strict-completeness` makes the run fail instead and writes the refused transcript to `work/transcript.gate-failed.json`. `--allow-incomplete` is deprecated and does nothing.
 - **Casing at cuts.** The model tends to start a sentence at a cut, so the first word after a cut takes its casing from the other pass when that pass heard the same word. Only the case changes, never the word.
 - **Names.** In testing, no engine got product and personal names right reliably. The report keeps the spoken forms, shows the on-screen vocabulary next to them, and `ANALYSIS_PROMPT.md` says the on-screen spelling is the authority.

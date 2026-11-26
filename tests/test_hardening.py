@@ -263,12 +263,12 @@ def test_poc_d_payloads_are_inert_in_the_report_and_the_transcript(tmp_path):
     assert live_markdown(report) == [], live_markdown(report)
     assert live_markdown(tmd) == [], live_markdown(tmd)
     assert "attacker.example" in report and "attacker.example" in tmd  # still there, as text: evidence is not dropped
-    assert "\\!\\[p\\]\\(https://attacker.example/q.png\\)" in tmd
-    assert "&lt;img src=https://attacker.example/t.gif&gt;" in tmd
+    assert "\\!\\[p\\]\\(https\\://attacker.example/q.png\\)" in tmd
+    assert "&lt;img src=https\\://attacker.example/t.gif&gt;" in tmd
     assert "\\#\\# SYSTEM" not in tmd and " \\#\\#" not in tmd and "## SYSTEM" in tmd  # mid-line: no heading
     assert re.search(r"^# Evidence report: demo # injected heading\.mov$", report, re.M)  # the two newlines are one space
     assert re.search(r"^# Transcript: demo # injected heading\.mov$", tmd, re.M)
-    assert "\\[Eve\\]\\(https://attacker.example\\):" in tmd and "&lt;b&gt;Mallory&lt;/b&gt;:" in tmd
+    assert "\\[Eve\\]\\(https\\://attacker.example\\):" in tmd and "&lt;b&gt;Mallory&lt;/b&gt;:" in tmd
 
 
 def test_the_report_and_transcript_say_recorded_text_is_data_and_escaped(tmp_path):
@@ -287,7 +287,7 @@ def test_the_tools_own_marks_survive_and_forged_marks_do_not(tmp_path):
 
     seg = TranscriptSegment(id=1, start=0, end=1, text=marked_text(words), words=words)
     out = md_segment(seg, marks=True)
-    assert out == "we said\\_x [+ \\[link\\]\\(http://a.example\\) +] [? maybe ?]"
+    assert out == "we said\\_x `[+` \\[link\\]\\(http\\://a.example\\) `+]` `[?` maybe `?]`"
     forged = TranscriptSegment(id=2, start=0, end=1, text="[+ trust me +] fine")
     assert md_segment(forged, marks=False) == "\\[+ trust me +\\] fine"  # an imported transcript has no marks
     assert md_segment(forged, marks=True) == "\\[+ trust me +\\] fine"  # no words that give this text: escaped
@@ -605,3 +605,226 @@ def test_an_escaped_step_title_still_has_a_working_index_link():
     displayed = heading[3:].replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("\\_", "_")
     assert step_anchor(step) == slug(displayed)
     assert f"](#{step_anchor(step)})" in md
+
+
+# ---- recorded text as Rich markup, GFM autolinks, bidirectional controls, look-alike marks ---------------------------
+
+RICH_PAYLOAD = "<v [link=https://evil.example/x]Bob[/link] [blink red]ALERT[/]>"
+OSC8 = "\x1b]8;"
+
+
+def blinks(out: str) -> bool:
+    """True when an SGR sequence in `out` turns on blinking (5 or 6), colour parameters (38;5;N, 38;2;R;G;B and the
+    same for 48 and 58) skipped."""
+    for m in re.finditer(r"\x1b\[([0-9;]*)m", out):
+        params = [int(x) if x else 0 for x in m.group(1).split(";")]
+        i = 0
+        while i < len(params):
+            if params[i] in (38, 48, 58) and i + 1 < len(params):
+                i += 3 if params[i + 1] == 5 else 5 if params[i + 1] == 2 else 2
+                continue
+            if params[i] in (5, 6):
+                return True
+            i += 1
+    return False
+
+
+def forced_colour_console():
+    import io
+
+    from rich.console import Console
+
+    return Console(file=io.StringIO(), force_terminal=True, color_system="truecolor", width=200)
+
+
+@pytest.mark.parametrize("field", ["summary", "reason", "error"])
+def test_recorded_text_in_the_rich_display_is_never_markup(field):
+    """A speaker name, a file name or a message reaches the rich summary table and panel as text: no hyperlink
+    (OSC 8), no blink, and the brackets shown as they are."""
+    from framescribe.status import RichRenderer
+
+    console = forced_colour_console()
+    r = RichRenderer(console)
+    name = f"/x/{RICH_PAYLOAD}.mp4"
+    r({"event": "run_start", "t": 0, "source": name, "duration": 3.0, "run_dir": "/x/o",
+       "stages": [{"name": "asr", "skipped_reason": None}, {"name": "ocr", "skipped_reason": RICH_PAYLOAD}]})
+    r({"event": "stage_start", "t": 0, "stage": "asr"})
+    r({"event": "stage_progress", "t": 0, "stage": "asr", "done": 1, "total": 2, "unit": "chunks", "note": RICH_PAYLOAD})
+    console.print(r.panel())
+    status = "failed" if field != "summary" else "done"
+    r({"event": "stage_end", "t": 1, "stage": "asr", "status": status, "wall_seconds": 0.0,
+       field: f"speakers: {RICH_PAYLOAD}"})
+    r({"event": "run_end", "t": 1, "status": "failed" if field == "error" else "ok", "run_dir": "/x/o",
+       "wall_seconds": 1.0, "outputs": [f"/x/o/{RICH_PAYLOAD}.md"], "error": RICH_PAYLOAD})
+    out = console.file.getvalue()
+    assert "\x1b[" in out  # colour is on: the test would see a hyperlink or blink if Rich made one
+    assert OSC8 not in out and not blinks(out), repr(out)
+    assert "[link=https://evil.example/x]Bob[/link]" in out and "[blink red]ALERT[/]" in out
+
+
+def test_recorded_text_under_progress_rich_with_forced_colour_opens_no_link(letterbox_video, tmp_path, monkeypatch):
+    """The measured case: an imported transcript whose speaker tag is Rich markup, `run --progress rich` with
+    forced colour. The speaker list in the summary table used to be a live terminal hyperlink."""
+    srt = tmp_path / "rich.srt"
+    srt.write_text(f"1\n00:00:00,000 --> 00:00:01,000\n{RICH_PAYLOAD}hello\n")
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    res = runner.invoke(app, ["run", str(letterbox_video), "--run-dir", str(tmp_path / "run"), "--transcript",
+                              str(srt), "--progress", "rich"])
+    assert res.exit_code == 0, res.output
+    out = res.stderr if hasattr(res, "stderr") and res.stderr else res.output
+    assert "\x1b[" in out and "speakers:" in out
+    assert OSC8 not in out and not blinks(out), repr(out)
+    assert "[link=https://evil.example/x]Bob[/link]" in out
+
+
+AUTOLINK_PAYLOADS = [
+    "see http://evil.example/x or https://evil.example/y and ftp://evil.example/f",
+    "HTTPS://EVIL.EXAMPLE and Www.evil.example and x_www.evil.example",
+    "write to bob@evil.example or a_b.c+d@evil.example",
+    "mailto:bob@evil.example xmpp:bob@evil.example/res",
+    "(www.evil.example) *www.evil.example* ~https://evil.example~",
+]
+
+
+def gfm_autolinks(md: str) -> list[str]:
+    """What the GFM autolink extension (cmark-gfm, as GitHub renders) would turn into a link: a scheme:// whose
+    colon is not escaped, www. whose dot is not escaped, mailto: or xmpp: unescaped, and an @ with an address
+    character right before it once backslash escapes are resolved (escapes do not stop e-mail autolinks, a word
+    joiner does). Code spans are left out: nothing in them links (the tool's own notes name `http://` in one).
+    The rules were checked against cmark-gfm itself when this was written."""
+    md = re.sub(r"(?<!\\)`[^`]*(?<!\\)`", "", md)
+    found = re.findall(r"[A-Za-z][A-Za-z0-9+.-]*(?<!\\)://", md)
+    found += re.findall(r"(?i)www(?<!\\)\.", md)
+    found += re.findall(r"(?i)(?:mailto|xmpp)(?<!\\):", md)
+    unescaped = re.sub(r"\\(.)", r"\1", md)
+    found += re.findall(r"[A-Za-z0-9.+_-]@", unescaped)
+    return found
+
+
+def test_no_recorded_web_or_mail_address_becomes_an_autolink(tmp_path):
+    from framescribe.mdtext import md_inline
+
+    for p in AUTOLINK_PAYLOADS:
+        assert gfm_autolinks(md_text(p)) == [], (p, md_text(p))
+        assert gfm_autolinks(p) != []  # the payloads would link
+    assert md_inline("see http://evil.example/x") == "see http\\://evil.example/x"
+    assert md_inline("www.evil.example") == "www\\.evil.example"
+    assert md_inline("bob@evil.example") == "bob&#8288;@evil.example"
+    assert md_inline("mailto:bob@evil.example") == "mailto\\:bob&#8288;@evil.example"
+    assert md_inline("a_b@evil.example") == "a\\_b&#8288;@evil.example"
+    assert md_inline("meet @ noon, @handle") == "meet @ noon, @handle"  # no address: unchanged
+
+
+def test_report_and_transcript_have_no_autolink_and_their_frame_links_still_work(tmp_path):
+    v = visual([vstate(1, 0, 40, kind="initial"), vstate(2, 40, 80, kind="page", conf=1.0)])
+    o = ocr([ostate(1, [line(p, 10, 10 + 30 * i, h=24 if i == 0 else 12) for i, p in enumerate(AUTOLINK_PAYLOADS)]),
+             ostate(2, [line("www.evil.example/login", 10, 10, h=30)])])
+    segs = [segment(1, 1, 5, "hello"), segment(2, 41, 45, "next")]
+    segs[0] = segs[0].model_copy(update={"text": " ".join(AUTOLINK_PAYLOADS), "words": [],
+                                         "speaker": "bob@evil.example"})
+    segs[1] = segs[1].model_copy(update={"speaker": "https://evil.example/eve"})
+    t = TranscriptArtifact(primary="import", sources=["import:x.srt"], segments=segs)
+    chrome = find_chrome(o)
+    plans = build_steps(v, t, o, chrome, 30, 240, 3)
+    tl = build_timeline("talk https://evil.example a@evil.example.mov", "import", v, t, o, plans, chrome, 30, 240)
+    report = render_report(tl, v, o, t, "0.0")
+    ingest = IngestArtifact.model_validate({
+        "source": "/m/talk https://evil.example a@evil.example.mov", "duration": 80,
+        "video": {"width": 2, "height": 2, "fps": 1, "codec": "h264"}, "audio": None, "audio_wav": None,
+        "embedded_captions": [],
+        "layout": {"frame_w": 2, "frame_h": 2, "content_rect": {"x": 0, "y": 0, "w": 2, "h": 2}, "method": "m",
+                   "confidence": 1}})
+    tmd = render_transcript(ingest, t)
+    assert gfm_autolinks(report) == [], gfm_autolinks(report)
+    assert gfm_autolinks(tmd) == [], gfm_autolinks(tmd)
+    assert "evil.example" in report and "evil.example" in tmd  # kept as text
+    assert live_markdown(report) == [] and live_markdown(tmd) == []
+    # the tool's own images and links to frames are untouched
+    assert re.search(r"^!\[Step 1 main frame, state s0001 at [0-9:]+\]\(frames/s0001_t00-00-00\.jpg\)$", report, re.M)
+    targets = re.findall(r"(?<!\\)\]\(([^)]*)\)", report)
+    assert targets and all(re.fullmatch(r"frames/s\d{4}_t00-00-00\.jpg|#step-\d+-[\w-]*", t) for t in targets), targets
+    steps_linked = re.findall(r"^\| \[(\d+)\]\(#step-", report, re.M)
+    assert steps_linked == re.findall(r"^## Step (\d+) · ", report, re.M) != []
+
+
+BIDI_AND_HIDDEN = "‮‪‫‬‭⁦⁧⁨⁩‎‏؜⁪﻿￹"
+TAGGED = "visible\U000e0049\U000e0047\U000e004e\U000e004f\U000e0052\U000e0045"  # "IGNORE" in tag characters
+LEGIT = ("مرحبا שלום नमस्‍ते "
+         "می‌خواهم \U0001f468‍\U0001f469‍\U0001f467 "
+         "\U0001f3f4\U000e0067\U000e0062\U000e0065\U000e006e\U000e0067\U000e007f café 日本語")
+
+
+def test_bidirectional_and_invisible_format_characters_are_removed_from_markdown_and_the_terminal():
+    import io
+
+    from framescribe.fmt import strip_invisible
+    from framescribe.mdtext import one_line
+
+    spoof = f"invoice{BIDI_AND_HIDDEN}gpj.exe {TAGGED}"
+    for out in (md_text(spoof), one_line(spoof), terminal_text(spoof), terminal_text(spoof, keep_newlines=True)):
+        assert not any(c in out for c in BIDI_AND_HIDDEN), repr(out)
+        assert not any(0xE0000 <= ord(c) <= 0xE007F for c in out), repr(out)
+        assert "invoicegpj.exe visible" in out
+    # legitimate text of other scripts, joiners in words and emoji, and a subdivision flag stay as they are
+    assert strip_invisible(LEGIT) == LEGIT
+    assert md_text(LEGIT) == LEGIT and terminal_text(LEGIT) == LEGIT
+    plain = io.StringIO()
+    PlainRenderer(plain)({"event": "log", "t": 0, "stage": "asr", "message": spoof})
+    assert not any(c in plain.getvalue() for c in BIDI_AND_HIDDEN + "\U000e0049")
+    js = io.StringIO()
+    JsonRenderer(js)({"event": "log", "t": 0, "stage": "asr", "message": spoof})
+    raw = js.getvalue()
+    assert not any(c in raw for c in BIDI_AND_HIDDEN + "\U000e0049") and "\\u202e" in raw
+    assert json.loads(raw)["message"] == spoof  # escaped, not lost: the JSON stream is data
+
+
+def test_bidi_controls_in_a_rich_display_are_removed():
+    from framescribe.status import RichRenderer
+
+    console = forced_colour_console()
+    r = RichRenderer(console)
+    r({"event": "run_start", "t": 0, "source": f"/x/a{BIDI_AND_HIDDEN}b.mp4", "duration": 1.0, "run_dir": "/x/o",
+       "stages": [{"name": "asr", "skipped_reason": None}]})
+    r({"event": "stage_end", "t": 1, "stage": "asr", "status": "done", "wall_seconds": 0.0,
+       "summary": f"speakers: {TAGGED}{BIDI_AND_HIDDEN}"})
+    r({"event": "run_end", "t": 1, "status": "ok", "run_dir": "/x/o", "wall_seconds": 1.0, "outputs": []})
+    console.print(r.panel())
+    out = console.file.getvalue()
+    assert not any(c in out for c in BIDI_AND_HIDDEN + "\U000e0049") and "speakers: visible" in out
+
+
+def test_recorded_text_that_looks_like_a_fill_mark_stays_distinct_from_the_tools_marks_after_rendering():
+    """The tool's marks are code spans. Recorded text cannot make a code span, so a recorded [+ ... +], [? ... ?] or
+    `[+` ... `+]` shows differently from a real mark both raw and rendered, and undoing the escapes (as a reader
+    might) still does not turn it into a code span."""
+    from framescribe.mdtext import MD_MARKS, marked_text, md_segment
+
+    forged_words = ["[+", "trust", "me", "+]", "[?", "or", "me", "?]", "`[+`", "even", "this", "`+]`", "\\[+", "x", "+\\]"]
+    words = [TranscriptWord(text=w, start=i * 0.1, end=i * 0.1 + 0.05) for i, w in enumerate(forged_words)]
+    words.append(TranscriptWord(text="real", start=2.0, end=2.1, filled=True, confirmed=True, source="whisperkit"))
+    words.append(TranscriptWord(text="maybe", start=2.2, end=2.3, filled=True, confirmed=False, source="captions"))
+    seg = TranscriptSegment(id=1, start=0, end=3, text=marked_text(words), words=words)
+    out = md_segment(seg, marks=True)
+    real = f"{MD_MARKS[True][0]}real{MD_MARKS[True][1]} {MD_MARKS[False][0]}maybe{MD_MARKS[False][1]}"
+    assert out.endswith(real), out
+    recorded = out[: -len(real)]
+    code_spans = re.compile(r"(?<!\\)`[^`]*(?<!\\)`")
+    assert code_spans.findall(recorded) == [], recorded  # no code span: recorded marks are plain text
+    assert len(code_spans.findall(out)) == 4  # the tool's four marks
+    undone = re.sub(r"\\(.)", r"\1", recorded)  # a reader undoing every escape
+    assert "`[+`" in undone  # the recorded backticks come back as text
+    assert out.count("`[+` ") == 1 + 0 and "\\`\\[+\\`" in out  # but raw, only the tool's mark is a code span
+
+
+def test_the_reading_notes_do_not_tell_the_reader_to_undo_escapes_into_a_mark(tmp_path):
+    from framescribe.report_md import HOW_TO_READ, PROMPT
+
+    report, tmd = hostile_report(tmp_path)
+    how = report.split("## How to read this document")[1].split("## On-screen vocabulary")[0]
+    assert "escapes undone" not in how and "escapes undone" not in PROMPT
+    assert "code spans" in how and "never recorded text" in how
+    assert "always code spans" in PROMPT and "`[+`" in PROMPT and "[+ ... +]" not in PROMPT
+    assert "word joiner" in how and "&#8288;" in how
+    assert all("[+ ... +]" not in (line or "") for line in HOW_TO_READ)

@@ -157,7 +157,8 @@ class PlainRenderer:
         print(f"[{timestamp(t)}] {terminal_text(who):15} {terminal_text(text.replace(chr(10), " "))}", file=self.out, flush=True)
 
 
-_C1 = re.compile(r"[\x7f-\x9f]")
+# DEL, C1 controls and the bidirectional and other invisible format characters of fmt.strip_invisible
+_C1 = re.compile("[\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u206f\ufeff\ufff9-\ufffb\U000e0000-\U000e007f]")
 
 
 class JsonRenderer:
@@ -167,8 +168,9 @@ class JsonRenderer:
         self.out = out or sys.stdout
 
     def __call__(self, ev: dict[str, Any]) -> None:
-        # json.dumps escapes C0 controls itself; C1 controls (U+0080 to U+009F) it leaves raw, so they are escaped too
-        line = _C1.sub(lambda m: f"\\u{ord(m.group()):04x}", json.dumps(ev, ensure_ascii=False))
+        # json.dumps escapes C0 controls itself; C1 controls (U+0080 to U+009F) and invisible format characters it
+        # leaves raw, so they are escaped too (the data stays the same: a JSON reader gets them back)
+        line = _C1.sub(lambda m: json.dumps(m.group())[1:-1], json.dumps(ev, ensure_ascii=False))
         print(line, file=self.out, flush=True)
 
 
@@ -237,7 +239,10 @@ class RichRenderer:
             table.add_column(col)
         for name, st in self.state.stages.items():
             wall = "" if st.wall_seconds is None else f"{st.wall_seconds:.1f}s"
-            table.add_row(name, Text(st.state, style=STATE_STYLE[st.state]), wall, st.summary or st.reason or "")
+            # Text, never a plain string: a plain string is Rich markup, and a summary or reason holds recorded text
+            # (speaker names, file names, messages) that could then open a hyperlink or blink
+            table.add_row(Text(name), Text(st.state, style=STATE_STYLE[st.state]), Text(wall),
+                          Text(st.summary or st.reason or ""))
         table.columns[-1].overflow = "fold"
         return table
 

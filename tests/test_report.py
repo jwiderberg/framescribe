@@ -372,10 +372,10 @@ class TestMarkdown:
     def test_how_to_read_names_only_the_sources_of_this_run(self):
         both = self._said_note(self._rendered(["parakeet-pass2", "captions"]))
         assert "(a second decode of the audio and the video's captions)" in both
-        assert "[+ ... +] when at least two of them" in both and "WhisperKit" not in both and "another speech recognition" not in both
+        assert "`[+` ... `+]` when at least two of them" in both and "always code spans" in both and "WhisperKit" not in both and "another speech recognition" not in both
         pass_only = self._said_note(self._rendered(["parakeet-pass2"]))
         assert "filled in from a second decode of the audio, the only other source" in pass_only
-        assert "[+ ... +] does not occur" in pass_only and "caption" not in pass_only and "another speech recognition" not in pass_only
+        assert "`[+` ... `+]` does not occur" in pass_only and "caption" not in pass_only and "another speech recognition" not in pass_only
         every = self._said_note(self._rendered(["parakeet-pass2", "whisperkit", "captions"]))
         assert "(a second decode of the audio, another speech recognition (WhisperKit) and the video's captions)" in every
         none = self._said_note(self._rendered([]))

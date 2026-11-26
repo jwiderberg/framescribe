@@ -16,7 +16,8 @@ from ..steps import build_steps, find_chrome
 from ..timeline import build_timeline
 from .base import Context, Stage, StageError
 
-VERSION = 6  # 6: recorded text escaped (mdtext), the data-not-instructions note, timeline.json names the file only
+VERSION = 7  # 7: no autolink, no bidi or invisible format character, the filled-word marks as code spans
+# 6: recorded text escaped (mdtext), the data-not-instructions note, timeline.json names the file only
 NAME = "report"
 SIDE_FILES = ("../report.md", "../timeline.json", "../ANALYSIS_PROMPT.md")
 

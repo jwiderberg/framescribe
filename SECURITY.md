@@ -25,7 +25,7 @@ Not trusted: everything that comes from the recording or with it. That is the vi
 - A video's name never leaves the output folder. A name that cannot be a folder of its own (`...mov`, a name with a newline) runs in `video/`.
 - ffmpeg opens only local files of the supported containers, so a file cannot make it read other files or the network.
 - Files are written by renaming a new file over the old one, logs are opened without following symbolic links, and a run folder, `work/` or `frames/` that is a symbolic link or belongs to another user stops the run.
-- Recorded text is escaped in `report.md` and `transcript.md`, and both say that everything quoted in them is data, not instructions. `timeline.json` keeps the text as it was, as data.
+- Recorded text is escaped in `report.md` and `transcript.md`, and both say that everything quoted in them is data, not instructions. Bare web and e-mail addresses in it do not become links in a GitHub-style renderer, and the marks of filled-in words are code spans that recorded text cannot make. Bidirectional and other invisible format characters are removed from recorded text there and in the terminal, and the rich status display shows recorded text as text, never as Rich markup. `timeline.json` keeps the text as it was, as data.
 - Malformed numbers, timings and files stop a run with a plain error. Videos over 12 hours, frames over 8192 pixels on a side and audio over about 1.4 GB as WAV are refused before anything is extracted.
 - A cached artifact that names a file outside the known set is not trusted, and the stage runs again.
 
