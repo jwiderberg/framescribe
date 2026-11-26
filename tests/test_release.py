@@ -781,6 +781,27 @@ def test_clean_removes_only_what_the_build_made(tmp_path):
 
 
 @macos_only
+def test_a_fresh_checkout_with_no_output_folder_builds(tmp_path):
+    """The release runner starts from a checkout with no app/build. The script must make it and reach the Swift
+    build (a stub that fails here), not stop while looking into a folder that is not there yet."""
+    repo = tmp_path / "repo"
+    (repo / "app").mkdir(parents=True)
+    shutil.copy(BUILD, repo / "app" / "build_app.sh")
+    shutil.copy(CHECK, repo / "app" / "bundle_check.sh")
+    shutil.copy(ROOT / "app" / "Package.swift", repo / "app" / "Package.swift")
+    shutil.copy(ROOT / "pyproject.toml", repo / "pyproject.toml")
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "swift").write_text("#!/bin/bash\nexit 1\n")
+    (stubs / "swift").chmod(0o755)
+    r = subprocess.run(["bash", str(repo / "app" / "build_app.sh")], capture_output=True, text=True,
+                       env={**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}"})
+    assert "No such file or directory" not in r.stderr, r.stderr
+    assert "==> framescribe " in r.stdout  # got past the output-folder checks
+    assert (repo / "app" / "build" / "work" / ".framescribe-build").exists()
+
+
+@macos_only
 def test_clean_leaves_a_work_folder_the_build_did_not_make(tmp_path):
     """--out naming a folder whose work/ is someone else's: neither --clean nor the build touches it."""
     repo = tmp_path / "repo"

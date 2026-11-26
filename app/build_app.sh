@@ -140,7 +140,9 @@ check_output_folder() {
     fi
     local theirs=""
     if [[ -e "$APP" || -L "$APP" ]]; then theirs="$APP"
-    else theirs="$(find "$BUILD" -mindepth 1 -maxdepth 1 -name 'Framescribe-*.zip*' -print -quit)"; fi
+    elif [[ -d "$BUILD" ]]; then  # a fresh checkout has no output folder yet
+        theirs="$(find "$BUILD" -mindepth 1 -maxdepth 1 -name 'Framescribe-*.zip*' -print -quit)"
+    fi
     if [[ -n "$theirs" ]]; then
         die "$theirs was not made by build_app.sh here ($WORK has no $WORK_MARKER); refusing to remove or replace it. Move it away or choose another --out"
     fi
