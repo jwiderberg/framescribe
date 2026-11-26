@@ -29,6 +29,10 @@ public struct CompletenessFigures: Sendable, Equatable {
     public let limit: Double?
     /// The filled share is above the limit: the transcript was kept, and the filled-in words should be checked.
     public let aboveLimit: Bool
+    /// Fills whose every word two sources agree on, fills from one source only, and candidates not used.
+    public var confirmed: Int? = nil
+    public var unconfirmed: Int? = nil
+    public var rejected: Int? = nil
 
     public init(summary: String, filledShare: Double? = nil, filledWords: Int? = nil, warning: String? = nil,
                 primaryWords: Int? = nil, limit: Double? = nil, aboveLimit: Bool = false) {
@@ -241,6 +245,9 @@ public enum EventDecoder {
                                                    primaryWords: cf.optionalDouble("primary_words").flatMap(Checked.int),
                                                    limit: cf.optionalDouble("limit"),
                                                    aboveLimit: cf.optionalBool("above_limit") ?? false)
+                completeness?.confirmed = cf.optionalDouble("confirmed").flatMap(Checked.int)
+                completeness?.unconfirmed = cf.optionalDouble("unconfirmed").flatMap(Checked.int)
+                completeness?.rejected = cf.optionalDouble("rejected").flatMap(Checked.int)
             }
             return .runEnd(RunEndEvent(t: try f.double("t"), status: try f.string("status"),
                                        runDir: f.optionalString("run_dir") ?? "",

@@ -6,6 +6,7 @@ struct JobDetail: View {
     @Bindable var model: AppModel
     let job: Job
     @State private var showLog = false
+    @State private var outputSize: String?
 
     var body: some View {
         ScrollView {
@@ -119,25 +120,45 @@ struct JobDetail: View {
                         .accessibilityLabel("Copy the output folder's path")
                 }
             }
-            if let c = job.progress.completeness {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Completeness").font(.subheadline.weight(.semibold))
-                    Text(c.summary).font(.callout).textSelection(.enabled)
-                }
-            }
-            warnings
-            if let wall = job.progress.wallSeconds {
-                Text("Took \(Clock.format(wall)).").font(.callout).foregroundStyle(.secondary)
-            }
+            overview
+        }
+        .task(id: job.runDirectory) {
+            guard let dir = job.runDirectory else { return }
+            let bytes = await Task.detached(priority: .utility) { RunOverview.folderBytes(dir) }.value
+            outputSize = bytes.map(RunOverview.size)
         }
     }
 
-    /// The stages' technical notes (which decode of a chunk was kept, where a cut fell) are for the logs. The job
-    /// view only says that there are some. What matters to a reader is in the Completeness line above.
-    @ViewBuilder private var warnings: some View {
+    /// Where the time went and what came out. The stages' technical notes (which decode of a chunk was kept, where a
+    /// cut fell) stay in the log: the view only counts them.
+    @ViewBuilder private var overview: some View {
+        let o = RunOverview(job.progress)
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
+            ForEach(o.rows) { row in
+                GridRow {
+                    Text(row.label).foregroundStyle(.secondary)
+                    Text(row.value).monospacedDigit().textSelection(.enabled)
+                }
+            }
+            if let outputSize {
+                GridRow {
+                    Text("Output folder").foregroundStyle(.secondary)
+                    Text(outputSize).monospacedDigit()
+                }
+            }
+        }
+        .font(.callout)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Overview of the run")
+        if let c = o.completeness {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Completeness").font(.subheadline.weight(.semibold))
+                Text(c).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            }
+        }
         let n = job.progress.warnings.count
         if n > 0 {
-            Text("\(n) technical \(n == 1 ? "note" : "notes") in the log.").font(.callout).foregroundStyle(.secondary)
+            Text("\(n) technical \(n == 1 ? "note" : "notes") in the log.").font(.caption).foregroundStyle(.secondary)
         }
     }
 
