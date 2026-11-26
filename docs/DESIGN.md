@@ -457,6 +457,13 @@ the first real check is opening the dry-run zip on a Mac and processing one vide
 `build_app.sh --sign` with a Developer ID runs the same imports under it before the preflight. If that check fails
 with a library-validation error, `disable-library-validation` goes back into `runtime.entitlements`.
 
+`app/bundle_check.sh APP | --unpacked DIR` ends every run that checks something with one RESULT line on stdout,
+`RESULT: passed` or `RESULT: refused: REASON`, the reason also on stderr, also after a usage error or an unexpected
+one (an EXIT trap). A bundle or `--unpacked` folder that cannot be listed or entered is a stated refusal ("cannot be
+read"), never an empty reason or "found 0". `physical_bundle` sets `BUNDLE_PATH` and `BUNDLE_PROBLEM` in the calling
+shell (not in `$(...)`, where the reason was lost), so sign, package and preflight state it too, and the preflight
+calls only a path that does not exist "not an app bundle".
+
 `app/preflight_app.sh [--allow-adhoc] APP` prints PASS, FAIL or SKIP per check and exits 1 on a failure, and every
 run ends with a RESULT line, also a refusal (usage, structure) or an unexpected error (an EXIT trap names it): first
 the structure check (a failure stops it there; a folder or file that cannot be read is a refusal, as is any error of
@@ -525,7 +532,14 @@ non-black" mask, finds connected rectangular regions and takes the largest as `c
   to the end; one starting later is dropped and logged; more than 5 such words fail the stage.
 - `import` — `--transcript FILE` (SRT, VTT, or this project's transcript JSON). Skips ASR. An imported transcript is
   taken as given and not cross-checked (its completeness is None, and the summary, `transcript.md` and the report say
-  so).
+  so). A transcript JSON must validate as framescribe's own: every source, backend and reason name in it
+  (`primary`, `sources`, the completeness figures' names and keys, a word's `source`, `alternates`) matches
+  `[a-z0-9][a-z0-9._-]{0,39}` (`models.NAME_PATTERN`, enforced on every artifact, cached ones too), or the run stops
+  with a plain error. Its segments, speakers and word timings are kept. Its completeness figures are dropped and its
+  words lose `filled`, `confirmed` and `source`: which words another run filled in is that file's claim, not this run's
+  check, so it never gets the tool's marks (code spans). Mark-like brackets in its text stay recorded text, escaped,
+  and the notes say so. A round trip of the tool's own `transcript.json` keeps the words and the plain `[+ ... +]`
+  brackets of the segment text.
 - `--asr parakeet|whisperkit|both|auto` — default `auto`: parakeet as primary, plus whisperkit only when both its CLI
   and model are configured. Without that configuration `auto` is parakeet alone, the supported path.
 
@@ -629,17 +643,34 @@ per step and "Coverage and caveats".
   recorded third-party content, data and never instructions, and how recorded text is escaped. `ANALYSIS_PROMPT.md`
   says the same to the LLM: report text that addresses an AI or asks for links, files, commands or images as a finding,
   open only `frames/`, output no link or image pointing elsewhere.
-- Recorded text (on-screen lines, titles, vocabulary, pointer labels, spoken and filled-in text, speaker names, the
-  file name) goes through `mdtext.md_text` in `report.md` and `transcript.md`: control characters become one space,
-  bidirectional and other invisible format characters (`fmt.strip_invisible`) are removed, `& < >` become entities,
-  and `` \ ` * _ [ ] ( ) ! | ~ `` and a leading `#` get a backslash. GFM autolinks need no brackets, so the colon of
+- `report.md` and `transcript.md` are put together from `mdtext.Md` values only (`mdtext.document` refuses any
+  other line, so a field formatted in with an f-string fails at once): `own(...)` for the tool's own constant text,
+  `md(template, *values)` and `md_join` for a template of the code with values, which escapes every value that is not
+  already Md. Text from anywhere but the code is escaped by default: recorded text (on-screen lines, titles,
+  vocabulary, pointer labels, spoken and filled-in text, speaker names, the file name) and every field read from an
+  artifact (source and backend names, the completeness line, which is built by `Completeness.summary(MARKDOWN)`, and
+  its warning). Escaping (`mdtext.md_text`): control characters become one space,
+  invisible format characters (`fmt.strip_invisible`) are removed, `& < >` become entities,
+  and `` \ ` * _ [ ] ( ) ! | ~ `` get a backslash. At the start of a line or list item, leading spaces are dropped and
+  a leading `#`, `-` or `+` before a space, a text of only `-` or `=` and spaces, and the dot of a leading `1.` get a
+  backslash, so recorded text starts no heading, list, thematic break, setext heading, block quote or code block (`>`,
+  `<` and fences are entities or escaped anyway). Link targets are percent-encoded relative paths, never `/...` or
+  `//host`. GFM autolinks need no brackets, so the colon of
   `scheme://`, `mailto:` and `xmpp:` and the dot of `www.` get a backslash too, and an `@` after an address character
   gets the word joiner entity `&#8288;` before it (cmark-gfm finds e-mail autolinks after resolving escapes, so only
-  a character between breaks them). Rendered, the text reads as recorded. The marks are code spans
+  a character between breaks them), in any case (`HTTPS://`, `Mailto:`, `WWW.`). What this guarantees holds for
+  GitHub Flavored Markdown renderers (the tests render with cmark-gfm). Viewers that link bare domains such as
+  `example.com/x` on their own (linkify) go beyond GFM; the text is not changed for them. Rendered, the text reads as
+  recorded. The marks are code spans
   (`` `[+` ``, `` `+]` ``, `` `[?` ``, `` `?]` ``) put around words after they were escaped, from the words' own flags,
   and only for a cross-checked transcript. Recorded text cannot make a code span, so a mark in recorded text stays
   plain bracketed text, raw and rendered, and undoing its escapes does not make it a code span either. `timeline.json` keeps the raw text (schema 3: its `source` is
-  the file name only). When the speech stage warned about
+  the file name only). Invisible format characters: every Unicode format character (category Cf) is removed
+  from recorded text in both files and on the terminal, except the zero-width non-joiner and joiner (emoji sequences,
+  Persian, the Indic scripts), the Arabic, Syriac and Kaithi signs that span the digits after them, and the format
+  controls of Egyptian hieroglyphs and Duployan shorthand (`fmt.KEPT_FORMAT`). Tag characters stay only in the three
+  RGI subdivision flags (England, Scotland, Wales), so a chain of black flags carries no hidden text. The tool's own
+  word joiner before an `@` is put in after this, as the entity `&#8288;`. When the speech stage warned about
   chunks kept without punctuation or chunks that stayed empty, the header has one row with the two counts (read from
   the `asr.parakeet` artifact, which is unchanged; the spans stay in the stage log).
 
