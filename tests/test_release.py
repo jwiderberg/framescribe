@@ -781,6 +781,37 @@ def test_clean_removes_only_what_the_build_made(tmp_path):
 
 
 @macos_only
+def test_a_file_without_entitlements_has_none_even_when_plutil_complains_on_standard_output(tmp_path):
+    """macOS 15's plutil writes "<stdin>: Property List error" to standard output for empty input. A signed file with
+    no entitlements must still read as having none, and a plist that cannot be parsed must not read as none."""
+    exe = tmp_path / "tool"
+    shutil.copy("/usr/bin/true", exe)
+    subprocess.run(["codesign", "--force", "-s", "-", str(exe)], check=True, capture_output=True)
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "plutil").write_text(
+        '#!/bin/bash\nin="$(cat)"\n'
+        'if [[ -z "$in" ]]; then echo "<stdin>: Property List error: empty"; exit 1; fi\n'
+        '[[ -n "${BREAK_PLUTIL:-}" ]] && { echo "<stdin>: Property List error: broken"; exit 1; }\n'
+        'printf "%s" "$in" | /usr/bin/plutil "$@"\n')
+    (stubs / "plutil").chmod(0o755)
+    script = f'source "{CHECK}"; entitlement_names "$1"'
+    env = {**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}"}
+    r = subprocess.run(["bash", "-c", script, "x", str(exe)], capture_output=True, text=True, env=env)
+    assert r.returncode == 0 and r.stdout == "", r.stdout
+    ent = tmp_path / "e.plist"
+    ent.write_text('<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>'
+                   "<key>com.apple.security.cs.allow-jit</key><true/></dict></plist>")
+    subprocess.run(["codesign", "--force", "-s", "-", "--entitlements", str(ent), str(exe)], check=True,
+                   capture_output=True)
+    r = subprocess.run(["bash", "-c", script, "x", str(exe)], capture_output=True, text=True, env=env)
+    assert r.stdout.split() == ["com.apple.security.cs.allow-jit"], r.stdout
+    r = subprocess.run(["bash", "-c", script, "x", str(exe)], capture_output=True, text=True,
+                       env={**env, "BREAK_PLUTIL": "1"})
+    assert r.stdout.split() == ["unreadable-entitlements"], r.stdout
+
+
+@macos_only
 def test_a_fresh_checkout_with_no_output_folder_builds(tmp_path):
     """The release runner starts from a checkout with no app/build. The script must make it and reach the Swift
     build (a stub that fails here), not stop while looking into a folder that is not there yet."""

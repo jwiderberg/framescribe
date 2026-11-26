@@ -187,9 +187,18 @@ ar_by_magic() {
 # entitlement_names FILE: the entitlements of a signed file, or of an .entitlements plist, one name per line, sorted.
 # Every value is a boolean true; anything else is named with its value, so that it cannot compare equal.
 entitlement_names() {
-    local json
+    local json xml
     if [[ "$1" == *.entitlements ]]; then json="$(plutil -convert json -o - "$1")"
-    else json="$(codesign -d --entitlements - --xml "$1" 2>/dev/null | plutil -convert json -o - - 2>/dev/null || true)"; fi
+    else
+        # no entitlements: codesign prints nothing. plutil must not see that: on macOS 15 it writes its
+        # "Property List error" for empty input to standard output, which then read as an entitlement
+        xml="$(codesign -d --entitlements - --xml "$1" 2>/dev/null || true)"
+        [[ -n "$xml" ]] || return 0
+        if ! json="$(plutil -convert json -o - - 2>/dev/null <<< "$xml")"; then
+            printf 'unreadable-entitlements\n'  # a name no expected set holds, so the comparison fails
+            return 0
+        fi
+    fi
     [[ -n "$json" ]] || return 0
     tr -d '{}\n ' <<< "$json" | tr ',' '\n' \
         | awk -F: 'NF { k = $1; gsub(/"/, "", k); print ($2 == "true") ? k : k "=" $2 }' | LC_ALL=C sort
