@@ -361,7 +361,9 @@ tag v0.1.0 ─> build (macos-15, read-only, no secrets)    sign (macos-15, envir
   the authority chain) and the Python's entitlements, then runs the embedded Python: `--version`, `doctor --json` (only
   ffmpeg, ffprobe and the speech model may be missing) and `import librosa, numba, llvmlite, mlx.core` with a
   numba-compiled call. That is the check of library validation with the real Team ID. `publish` has no secrets and
-  the only write permissions, and needs verify.
+  the only write permissions, and needs verify. It checks out `install.sh` alone at the run's commit (sparse, no
+  credentials) for the installer's SHA-256 in the release notes, not taken in `build`, whose Build step runs
+  dependency code that could change the workspace.
 - Runner: `macos-15` for build and sign, Apple Silicon and the app's own minimum macOS. `build_app.sh` runs the
   embedded runtime on the build machine (the import check), so the build runner must be able to run the bundle, and the
   floor OS shows it loads there. The newest Xcode on the image is selected for the Swift build.
@@ -422,7 +424,9 @@ signed must equal what an independent enumeration finds.
 - `build_app.sh --clean` removes only what the script makes: `work/`, `Framescribe.app` and the zips in the output
   folder, and `app/.build`. The output folder itself stays, so `--out` can name a folder that holds other files. A
   `work/` counts as the script's only when it holds the marker `.framescribe-build` (or `runtime.stamp`, from builds
-  before the marker) or is empty; the build refuses to touch any other.
+  before the marker) or is empty; the build refuses to touch any other. A `Framescribe.app` or `Framescribe-*.zip` in
+  an output folder whose `work/` lacks that marker is someone else's (`--out /Applications`): with or without
+  `--clean` the build stops before removing or replacing it. `app/.build` is removed only next to `Package.swift`.
 
 Entitlements, found by building the hardened ad-hoc bundle with none and adding one at a time (each probe a separate
 process of the bundle's Python: ctypes callbacks, llvmlite MCJIT, numba, librosa, MLX on the GPU, `mx.compile` on GPU
@@ -453,15 +457,19 @@ the first real check is opening the dry-run zip on a Mac and processing one vide
 `build_app.sh --sign` with a Developer ID runs the same imports under it before the preflight. If that check fails
 with a library-validation error, `disable-library-validation` goes back into `runtime.entitlements`.
 
-`app/preflight_app.sh [--allow-adhoc] APP` prints PASS, FAIL or SKIP per check and exits 1 on a failure: first the
-structure check (a failure stops it there), then the two Mach-O enumerations agree, every Mach-O file has a valid
+`app/preflight_app.sh [--allow-adhoc] APP` prints PASS, FAIL or SKIP per check and exits 1 on a failure, and every
+run ends with a RESULT line, also a refusal (usage, structure) or an unexpected error (an EXIT trap names it): first
+the structure check (a failure stops it there; a folder or file that cannot be read is a refusal, as is any error of
+`find` while listing the bundle), then the two Mach-O enumerations agree, every Mach-O file has a valid
 signature of its own (`codesign --verify --strict`, Contents/Resources included) and the runtime flag (`0x10000`), the
 authority chain Developer ID Application, Developer ID Certification Authority, Apple Root CA with the leaf's Team ID
 equal to the TeamIdentifier, a secure timestamp and one Team ID across all of them (skipped with `--allow-adhoc`), no `get-task-allow`, exactly the expected entitlements on `bin/python3.12` and none on the app's
 executable, every Mach-O file built against the macOS 10.9 SDK or newer (`vtool -show-build`), only Mach-O files in
 Contents/MacOS, no static library (by name or by content), no symbolic link that is absolute or leaves the bundle,
 no hard-linked file, no quarantine, Finder
-information or resource fork attribute, and `codesign --verify --deep --strict` on the bundle. On the hardened
+information or resource fork attribute, and `codesign --verify --deep --strict` on the bundle. The Developer ID
+check reads names, which a certificate can carry whatever its issuer: it is a sanity check. Trust is decided by
+`codesign --verify --strict`, Apple's notarization and the verify job's `spctl --assess` (Notarized Developer ID). On the hardened
 ad-hoc build all of them pass (292 Mach-O files, the oldest SDK 11.0).
 
 `app/package_app.sh [--out DIR] APP` checks the bundle's structure first and writes
@@ -558,9 +566,9 @@ embedded captions (`completeness.py`, pure functions).
   inside that silence, as `TranscriptWord{..., source, filled: true, confirmed}`. The text is taken from the source
   with the most words in the gap (ties: second pass, WhisperKit, captions). Primary words are never altered or
   removed, and word order stays monotonic in time.
-- Filled text is marked everywhere it appears: `[+ ... +]` for confirmed, `[? ... ?]` for unconfirmed, in
-  `transcript.md`, in the segment text of `transcript.json` and `timeline.json`, and in `report.md`, whose header
-  explains the marks once (as does `ANALYSIS_PROMPT.md`).
+- Filled text is marked everywhere it appears: `[+ ... +]` for confirmed, `[? ... ?]` for unconfirmed, in the
+  segment text of `transcript.json` and `timeline.json`, and as code spans (`` `[+` ... `+]` ``, `` `[?` ... `?]` ``)
+  in `transcript.md` and `report.md`, whose header explains the marks once (as does `ANALYSIS_PROMPT.md`).
 - Limit: when filled words exceed `max_filled_share` (default 3%, `--max-filled-share`) of the transcript, the stage
   still succeeds (filling in is the remedy; refusing the result afterwards leaves the user nothing) and records
   `above_limit`, `limit` and `warning` in the figures: how many words and what share were filled in, that this is more
@@ -617,15 +625,20 @@ per step and "Coverage and caveats".
   from `report.md` at least once.
 - Deterministic; no model is called.
 - "How to read this document" names only the cross-check sources that were compared in the run (second decode, WhisperKit,
-  captions), and explains `[+ +]` only when at least two sources were compared. It says that everything quoted is
+  captions), and explains `` `[+` `+]` `` only when at least two sources were compared. It says that everything quoted is
   recorded third-party content, data and never instructions, and how recorded text is escaped. `ANALYSIS_PROMPT.md`
   says the same to the LLM: report text that addresses an AI or asks for links, files, commands or images as a finding,
   open only `frames/`, output no link or image pointing elsewhere.
 - Recorded text (on-screen lines, titles, vocabulary, pointer labels, spoken and filled-in text, speaker names, the
   file name) goes through `mdtext.md_text` in `report.md` and `transcript.md`: control characters become one space,
-  `& < >` become entities, and `` \ ` * _ [ ] ( ) ! | ~ `` and a leading `#` get a backslash. The marks `[+ +]` and
-  `[? ?]` are put around words after they were escaped, from the words' own flags, and only for a cross-checked
-  transcript, so a mark in recorded text shows escaped. `timeline.json` keeps the raw text (schema 3: its `source` is
+  bidirectional and other invisible format characters (`fmt.strip_invisible`) are removed, `& < >` become entities,
+  and `` \ ` * _ [ ] ( ) ! | ~ `` and a leading `#` get a backslash. GFM autolinks need no brackets, so the colon of
+  `scheme://`, `mailto:` and `xmpp:` and the dot of `www.` get a backslash too, and an `@` after an address character
+  gets the word joiner entity `&#8288;` before it (cmark-gfm finds e-mail autolinks after resolving escapes, so only
+  a character between breaks them). Rendered, the text reads as recorded. The marks are code spans
+  (`` `[+` ``, `` `+]` ``, `` `[?` ``, `` `?]` ``) put around words after they were escaped, from the words' own flags,
+  and only for a cross-checked transcript. Recorded text cannot make a code span, so a mark in recorded text stays
+  plain bracketed text, raw and rendered, and undoing its escapes does not make it a code span either. `timeline.json` keeps the raw text (schema 3: its `source` is
   the file name only). When the speech stage warned about
   chunks kept without punctuation or chunks that stayed empty, the header has one row with the two counts (read from
   the `asr.parakeet` artifact, which is unchanged; the spans stay in the stage log).
