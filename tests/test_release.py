@@ -235,7 +235,23 @@ def test_checkout_is_at_the_triggering_commit_without_persisted_credentials(wf, 
     assert checkout["uses"].startswith("actions/checkout@")
     # the commit the run started for: a tag moved while the run waits for approval does not change what is signed
     assert checkout["with"] == {"ref": "${{ github.sha }}", "persist-credentials": False}
-    assert not any(s.get("uses", "").startswith("actions/checkout@") for s in steps(wf, "publish"))
+
+
+def test_the_publish_job_checks_out_install_sh_alone_and_runs_nothing_from_it(wf):
+    """The installer's checksum comes from the commit the run started for, in the publish job: not from the build
+    job, whose Build step runs dependency code that could change the workspace before a checksum step there."""
+    publish = steps(wf, "publish")
+    checkouts = [s for s in publish if s.get("uses", "").startswith("actions/checkout@")]
+    assert checkouts == [publish[0]]
+    assert publish[0]["with"] == {"ref": "${{ github.sha }}", "persist-credentials": False, "path": "tree",
+                                  "sparse-checkout": "install.sh", "sparse-checkout-cone-mode": False}
+    checksum = step(wf, "publish", "Installer checksum")["run"]
+    assert 'sha256sum tree/install.sh' in checksum
+    for s in publish[1:]:  # no step runs or sources a file of the checkout
+        assert "tree/" not in s.get("run", "").replace("sha256sum tree/install.sh", ""), s.get("name")
+    assert "install_sha256" not in wf["jobs"]["build"].get("outputs", {})
+    assert not any(s.get("name") == "Installer checksum" for s in steps(wf, "build"))
+    assert "install.sh" not in as_text(steps(wf, "build"))
 
 
 # ---- dry run and publish -------------------------------------------------------------------------------------------
@@ -300,9 +316,9 @@ def test_the_release_notes_say_how_to_verify_and_what_is_needed(wf):
                    "macOS 15", "Apple Silicon", "ffmpeg", "2.5 GB", "shasum -a 256 install.sh", "$INSTALL_SHA256",
                    "raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_REF_NAME/install.sh"):
         assert needed in notes, needed
-    assert step(wf, "publish", "Release notes")["env"]["INSTALL_SHA256"] == "${{ needs.build.outputs.install_sha256 }}"
-    assert wf["jobs"]["build"]["outputs"]["install_sha256"] == "${{ steps.installer.outputs.sha256 }}"
-    assert "shasum -a 256 install.sh" in step(wf, "build", "Installer checksum")["run"]
+    assert step(wf, "publish", "Release notes")["env"]["INSTALL_SHA256"] == "${{ steps.installer.outputs.sha256 }}"
+    names = [s.get("name") for s in steps(wf, "publish")]
+    assert names.index("Installer checksum") < names.index("Release notes")
     assert wf["jobs"]["sign"]["outputs"]["team"] == "${{ steps.package.outputs.team }}"
     assert step(wf, "publish", "Release notes")["env"]["TEAM"] == "${{ needs.sign.outputs.team }}"
     assert "TeamIdentifier" in step(wf, "sign", "Package")["run"]
@@ -474,7 +490,7 @@ def gh_stub(tmp_path) -> SimpleNamespace:
                     f'if [[ "$1" == api && "$2" == */environments/missing* ]]; then exit 1; fi\n'
                     f'if [[ "$1" == api && "$2" == */deployment-branch-policies ]]; then echo "${{STUB_POLICIES-tag:v*}}"; exit 0; fi\n'
                     f'if [[ "$1" == api && "$2" == */environments/* ]]; then '
-                    f'echo "${{STUB_ENV-reviewers=1 custom=true protected=false}}"; exit 0; fi\nexit 0\n')
+                    f'echo "${{STUB_ENV-reviewers=1 custom=true protected=false admins=false}}"; exit 0; fi\nexit 0\n')
     stub.chmod(0o755)
     return SimpleNamespace(path=f"{bindir}:{os.environ['PATH']}", log=log)
 
@@ -542,6 +558,32 @@ def test_an_unprotected_environment_stops_before_any_secret_is_set(certs, gh_stu
     assert r.returncode == 1 and message in r.stderr and "Required reviewers" in r.stderr, r.stderr
     assert "secret set" not in gh_stub.log.read_text()
     assert "would set" not in r.stdout
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("admins", ["admins=true", ""], ids=["can_admins_bypass true", "field missing"])
+def test_an_environment_administrators_can_bypass_is_refused_unless_allowed(certs, gh_stub, admins, dry_run):
+    env = {"STUB_ENV": f"reviewers=1 custom=true protected=false {admins}".strip()}
+    mode = ["--dry-run"] if dry_run else []
+    r = secrets(certs, gh_stub, certs.devid, "--repo", "example/repo", *mode, env=env)
+    assert r.returncode == 1 and "administrators can bypass the protection rules" in r.stderr, r.stderr
+    assert "untick Allow administrators to bypass configured protection rules" in r.stderr
+    assert "--allow-admin-bypass" in r.stderr
+    assert "secret set" not in gh_stub.log.read_text() and "would set" not in r.stdout
+    r = secrets(certs, gh_stub, certs.devid, "--repo", "example/repo", *mode, "--allow-admin-bypass", env=env)
+    assert r.returncode == 0, r.stderr
+    assert "WARNING: repository administrators can bypass" in r.stderr
+    assert ("would set" in r.stdout) if dry_run else ("secret set" in gh_stub.log.read_text())
+
+
+def test_the_jq_expression_reads_can_admins_bypass_and_treats_a_missing_field_as_true():
+    if not shutil.which("jq"):
+        pytest.skip("jq not found")
+    expr = re.search(r"--jq '(\"reviewers=[^']*)'", SECRETS_SCRIPT.read_text()).group(1)
+    for doc, want in (('{"can_admins_bypass": false}', "admins=false"), ('{"can_admins_bypass": true}', "admins=true"),
+                      ("{}", "admins=true")):
+        out = subprocess.run(["jq", "-r", expr], input=doc, capture_output=True, text=True, check=True).stdout
+        assert out.strip().endswith(want), (doc, out)
 
 
 def test_a_certificate_that_is_not_developer_id_application_is_refused(certs, gh_stub):
@@ -716,6 +758,7 @@ def test_clean_removes_only_what_the_build_made(tmp_path):
     (repo / "app" / ".build").mkdir(parents=True)
     shutil.copy(BUILD, repo / "app" / "build_app.sh")
     shutil.copy(CHECK, repo / "app" / "bundle_check.sh")
+    shutil.copy(ROOT / "app" / "Package.swift", repo / "app" / "Package.swift")  # app/.build is next to it
     shutil.copy(ROOT / "pyproject.toml", repo / "pyproject.toml")
     out = tmp_path / "out"
     for made in ("work/runtime", "Framescribe.app/Contents"):
@@ -754,6 +797,88 @@ def test_clean_leaves_a_work_folder_the_build_did_not_make(tmp_path):
         assert r.returncode == 1 and "was not made by build_app.sh" in r.stderr, r.stderr
         assert (out / "work" / "thesis.tex").read_text() == "not the build's"
         assert not (out / "work" / ".framescribe-build").exists()
+
+
+# ---- executable bits -----------------------------------------------------------------------------------------------
+
+DIRECT_CALL = re.compile(r'(?:^|[\s;&|(`"])(?:"?\$(?:GITHUB_WORKSPACE|HERE|APP_DIR|REPO)"?/|\./)?((?:app|scripts)/[\w.-]+\.sh|install\.sh|[\w-]+\.sh)(?=["\s;|&)]|$)')
+
+
+def git_modes() -> dict[str, str]:
+    r = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-s", "--", "*.sh"], capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout:
+        pytest.skip("not a git checkout")
+    return {line.split("\t", 1)[1]: line.split()[0] for line in r.stdout.splitlines()}
+
+
+def test_every_shell_script_is_executable_in_git_and_on_disk():
+    """The workflow and the scripts run app/*.sh, scripts/*.sh and install.sh directly (not through `bash`): a file
+    without its executable bit in git fails there with exit 126 (Permission denied), as app/bundle_check.sh did."""
+    modes = git_modes()
+    expected = {"install.sh", *(p.relative_to(ROOT).as_posix() for d in ("app", "scripts") for p in (ROOT / d).glob("*.sh"))}
+    assert expected <= set(modes), expected - set(modes)
+    for path in sorted(expected):
+        assert modes[path] == "100755", f"{path} is {modes[path]} in git (git update-index --chmod=+x {path})"
+        assert os.access(ROOT / path, os.X_OK), path
+
+
+def test_every_script_the_workflow_or_a_script_runs_directly_is_100755():
+    modes = git_modes()
+    called: set[str] = set()
+    sources = [s.get("run", "") for _, s in all_steps(yaml.safe_load(WORKFLOW.read_text()))]
+    sources += [p.read_text() for p in (*(ROOT / "app").glob("*.sh"), *(ROOT / "scripts").glob("*.sh"))]
+    for text in sources:
+        for line in text.splitlines():
+            if line.lstrip().startswith(("#", "echo", "source ", ". ")) or "::error::" in line or "curl" in line:
+                continue
+            for m in DIRECT_CALL.finditer(line):
+                name = m.group(1)
+                path = name if "/" in name or name == "install.sh" else f"app/{name}"
+                if path in modes:
+                    called.add(path)
+    # what the measured failure was about, and what build_app.sh runs
+    assert {"app/bundle_check.sh", "app/sign_app.sh", "app/preflight_app.sh", "app/package_app.sh",
+            "app/build_app.sh"} <= called, called
+    assert {p: modes[p] for p in called if modes[p] != "100755"} == {}
+
+
+@macos_only
+@pytest.mark.parametrize("clean", [["--clean"], []], ids=["--clean", "build"])
+def test_an_app_in_an_output_folder_the_build_did_not_make_is_never_removed(tmp_path, clean):
+    """`--clean --out /Applications` used to run rm -rf on /Applications/Framescribe.app. An output folder without
+    the build's marker in work/ keeps its Framescribe.app and zips, with --clean or without, and so does app/.build
+    when it is not next to Package.swift."""
+    repo = tmp_path / "repo"
+    (repo / "app" / ".build").mkdir(parents=True)
+    (repo / "app" / ".build" / "keep").write_text("not without Package.swift")
+    shutil.copy(BUILD, repo / "app" / "build_app.sh")
+    shutil.copy(CHECK, repo / "app" / "bundle_check.sh")
+    shutil.copy(ROOT / "pyproject.toml", repo / "pyproject.toml")
+    applications = tmp_path / "Applications"
+    installed = applications / "Framescribe.app" / "Contents"
+    installed.mkdir(parents=True)
+    (installed / "Info.plist").write_text("installed")
+    (applications / "Other.app").mkdir()
+    r = subprocess.run(["bash", str(repo / "app" / "build_app.sh"), "--out", str(applications), *clean],
+                       capture_output=True, text=True)
+    assert r.returncode == 1 and "was not made by build_app.sh here" in r.stderr, r.stderr
+    assert "refusing to remove or replace it" in r.stderr and "==> clean:" not in r.stdout
+    assert (installed / "Info.plist").read_text() == "installed"
+    assert sorted(p.name for p in applications.iterdir()) == ["Framescribe.app", "Other.app"]  # no work/ either
+    # a zip of that name alone is someone else's too
+    shutil.rmtree(applications / "Framescribe.app")
+    (applications / "Framescribe-9.9.9.zip").write_text("theirs")
+    r = subprocess.run(["bash", str(repo / "app" / "build_app.sh"), "--out", str(applications), *clean],
+                       capture_output=True, text=True)
+    assert r.returncode == 1 and "Framescribe-9.9.9.zip was not made by build_app.sh here" in r.stderr, r.stderr
+    assert (applications / "Framescribe-9.9.9.zip").read_text() == "theirs"
+    # nothing of anyone's in the output folder, but app/.build has no Package.swift next to it: kept
+    (applications / "Framescribe-9.9.9.zip").unlink()
+    if clean:
+        r = subprocess.run(["bash", str(repo / "app" / "build_app.sh"), "--out", str(applications), "--clean"],
+                           capture_output=True, text=True)
+        assert r.returncode == 1 and "is not the Swift build folder of this checkout" in r.stderr, r.stderr
+        assert (repo / "app" / ".build" / "keep").exists()
 
 
 # ---- workflow hygiene ----------------------------------------------------------------------------------------------
@@ -1084,3 +1209,101 @@ def test_preflight_refuses_entitlements_on_any_mach_o_file_but_the_python(tmp_pa
                    check=True, capture_output=True)
     r = preflight(app, "--allow-adhoc")
     assert r.returncode == 1 and "FAIL  entitlements: 1 Mach-O files other than runtime/bin/python3.12 carry some" in r.stdout
+
+
+# ---- control characters in names, unreadable entries, and a RESULT line on every failing exit ----------------------
+
+
+@macos_only
+@pytest.mark.parametrize("name", ["c1-\u0085-next.py", "c1-\u009b-csi.py", "del-\x7f.py", "c0-\x01.py", "tab-\t.py"],
+                         ids=["C1 NEL (C2 85)", "C1 CSI (C2 9B)", "DEL", "C0 SOH", "tab"])
+def test_a_control_character_in_a_file_name_is_refused(tmp_path, name):
+    app = make_unsigned_bundle(tmp_path)
+    (app / "Contents" / "Resources" / "runtime" / "lib" / "python3.12" / name).write_text("# planted\n")
+    r = bundle_check(str(app))
+    assert r.returncode == 1 and "control character" in r.stderr, r.stderr
+    s = sign(app, "--hardened")
+    assert s.returncode == 1 and "control character" in s.stderr, s.stderr
+    p = preflight(app, "--allow-adhoc")
+    assert p.returncode == 1 and "FAIL  bundle structure:" in p.stdout and "control character" in p.stdout
+    assert p.stdout.rstrip().splitlines()[-1] == "RESULT: refused before any other check"
+
+
+@pytest.fixture
+def restore_modes():
+    """Folders and files made unreadable by a test get their permissions back, so that tmp_path can be removed."""
+    changed: list[Path] = []
+    yield changed
+    for p in changed:
+        p.chmod(0o755)
+
+
+@macos_only
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads everything")
+@pytest.mark.parametrize("what", ["folder", "file"])
+def test_an_unreadable_folder_or_file_is_a_stated_refusal(tmp_path, restore_modes, what):
+    app = make_bundle(tmp_path)
+    site = app / "Contents" / "Resources" / "runtime" / "lib" / "python3.12"
+    if what == "folder":
+        locked = site / "lockdir"
+        locked.mkdir()
+        (locked / "hidden.so").write_bytes(Path("/bin/echo").read_bytes())
+        message = "a folder cannot be listed or entered (permissions): Contents/Resources/runtime/lib/python3.12/lockdir"
+    else:
+        locked = site / "os.py"
+        message = "a file cannot be read (permissions): Contents/Resources/runtime/lib/python3.12/os.py"
+    locked.chmod(0)
+    restore_modes.append(locked)
+    r = bundle_check(str(app))
+    assert r.returncode == 1 and message in r.stderr and "Permission denied" not in r.stderr, r.stderr
+    s = sign(app, "--hardened")
+    assert s.returncode == 1 and message in s.stderr, s.stderr
+    p = preflight(app, "--allow-adhoc")
+    assert p.returncode == 1 and f"FAIL  bundle structure: {message}" in p.stdout
+    assert p.stdout.rstrip().splitlines()[-1] == "RESULT: refused before any other check"
+
+
+@macos_only
+def test_a_file_that_is_only_a_mach_o_magic_number_fails_the_preflight_with_a_result(tmp_path):
+    """Four bytes, a Mach-O magic and nothing else: vtool cannot read it. The preflight used to stop there (set -e)
+    with exit 1 and no RESULT line."""
+    app = make_bundle(tmp_path)
+    (app / "Contents" / "Resources" / "runtime" / "lib" / "python3.12" / "short.so").write_bytes(b"\xcf\xfa\xed\xfe")
+    p = preflight(app, "--allow-adhoc")
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert "FAIL  SDK: 1 Mach-O files have no readable SDK version or one older than macOS 10.9" in p.stdout
+    assert "short.so (no SDK version: vtool cannot read one)" in p.stdout
+    assert re.search(r"^RESULT: \d+ check\(s\) failed$", p.stdout.rstrip().splitlines()[-1])
+
+
+@macos_only
+def test_an_unexpected_error_in_the_preflight_still_ends_with_its_reason_and_a_result(tmp_path):
+    app = make_bundle(tmp_path)
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    (stubs / "sort").write_text("#!/bin/bash\necho 'sort: stub failure' >&2\nexit 3\n")
+    (stubs / "sort").chmod(0o755)
+    p = subprocess.run(["bash", str(PREFLIGHT), "--allow-adhoc", str(app)], capture_output=True, text=True,
+                       env={**os.environ, "PATH": f"{stubs}:{os.environ['PATH']}"})
+    assert p.returncode != 0
+    assert re.search(r"^FAIL  the preflight stopped at an unexpected error \(exit \d+, preflight_app.sh line \d+\)",
+                     p.stdout, re.M), p.stdout
+    assert p.stdout.rstrip().splitlines()[-1] == "RESULT: refused, the preflight did not finish"
+
+
+def test_a_usage_error_of_the_preflight_ends_with_a_result():
+    p = subprocess.run(["bash", str(PREFLIGHT)], capture_output=True, text=True)
+    assert p.returncode == 2 and "usage: preflight_app.sh" in p.stderr
+    assert p.stdout.rstrip().splitlines()[-1] == "RESULT: refused: usage: preflight_app.sh [--allow-adhoc] APP"
+    p = subprocess.run(["bash", str(PREFLIGHT), "/nonexistent/Framescribe.app"], capture_output=True, text=True)
+    assert p.returncode == 2 and p.stdout.rstrip().splitlines()[-1].startswith("RESULT: refused: not an app bundle")
+
+
+def test_releasing_md_says_to_turn_admin_bypass_off_and_what_decides_trust():
+    doc = (ROOT / "docs" / "RELEASING.md").read_text()
+    assert "Allow administrators to bypass configured protection rules is turned off" in doc
+    assert "`can_admins_bypass: false`" in doc and "can_admins_bypass}" in doc
+    assert "sanity check" in doc and "`codesign --verify --strict`" in doc and "Notarized Developer ID" in doc
+    assert "computed in the `publish` job" in doc
+    for script in (PREFLIGHT, CHECK):  # the comment there says so too
+        assert re.search(r"sanity\s+(?:#\s+)?check", script.read_text()), script

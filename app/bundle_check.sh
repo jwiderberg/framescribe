@@ -10,8 +10,9 @@
 # The check: APP is a directory called Framescribe.app, not a symbolic link, and so are Contents, Contents/MacOS,
 # Contents/Resources, Contents/Resources/runtime, runtime/bin, runtime/lib and runtime/lib/python3.12, and
 # Contents/Info.plist and runtime/bin/python3.12 are regular files. No path in the bundle holds a newline or another
-# control character (C0, DEL or C1). Every entry is a directory, a regular file or a symbolic link (no device, pipe or socket), no
-# regular file has a second hard link, and every symbolic link resolves (realpath) to an existing entry inside the
+# control character (C0, DEL or C1). Every entry is a directory, a regular file or a symbolic link (no device, pipe or socket), every
+# directory can be listed and entered and every regular file read (one that cannot is refused, never skipped), `find`
+# reports no error while listing the bundle, no regular file has a second hard link, and every symbolic link resolves (realpath) to an existing entry inside the
 # bundle. CFBundleName, CFBundleExecutable and CFBundleShortVersionString match ^[A-Za-z0-9][A-Za-z0-9._-]*$ and
 # CFBundleIdentifier is io.github.jwiderberg.framescribe.
 #
@@ -32,6 +33,19 @@ has_control_char() {  # TEXT: true when it holds a newline, a tab or any other C
     [[ "$1" == *[[:cntrl:]]* || "$1" == *$'\xc2'[$'\x80'-$'\x9f']* ]]
 }
 
+visible_text() {  # TEXT with a backslash doubled and every byte outside printable ASCII as \xHH, whatever the locale
+    local LC_ALL=C s="$1" out="" c i n
+    for (( i = 0; i < ${#s}; i++ )); do
+        c="${s:i:1}"
+        case "$c" in
+            \\) out+='\\' ;;
+            [[:print:]]) out+="$c" ;;
+            *) n="$(printf '%d' "'$c")"; if (( n < 0 )); then n=$(( n + 256 )); fi; out+="$(printf '\\x%02x' "$n")" ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
 # check_bundle_enumerable APP: what must hold before any path of the bundle is listed, signed or packed. On a
 # failure BUNDLE_PROBLEM says why. APP must be an absolute, physical path (cd APP && pwd -P).
 check_bundle_enumerable() {
@@ -47,15 +61,27 @@ check_bundle_enumerable() {
         p="$app/$rel"
         if [[ -L "$p" || ! -f "$p" ]]; then bundle_refuse "$rel is not a regular file"; return 1; fi
     done
-    # find without -L never follows a link; a name with a newline is refused before any other use of it
+    # find without -L never follows a link; a name with a newline is refused before any other use of it. An entry
+    # that cannot be read is refused: everything after this check (signing, the Mach-O search, packing) reads every file
     while IFS= read -r -d '' p; do
         if has_control_char "$p"; then
-            bundle_refuse "a path holds a newline or another control character: $(printf '%q' "${p#"$app"/}")"; return 1
+            bundle_refuse "a path holds a newline or another control character: $(visible_text "${p#"$app"/}")"; return 1
         fi
         if [[ ! -L "$p" && ! -f "$p" && ! -d "$p" ]]; then
             bundle_refuse "not a file, directory or symbolic link: ${p#"$app"/}"; return 1
         fi
-    done < <(find "$app" -print0)
+        if [[ ! -L "$p" && -d "$p" ]] && [[ ! -r "$p" || ! -x "$p" ]]; then
+            bundle_refuse "a folder cannot be listed or entered (permissions): ${p#"$app"/}"; return 1
+        fi
+        if [[ ! -L "$p" && -f "$p" && ! -r "$p" ]]; then
+            bundle_refuse "a file cannot be read (permissions): ${p#"$app"/}"; return 1
+        fi
+    done < <(find "$app" -print0 2>/dev/null)
+    # and find itself must have listed everything (the exit status of the loop's find is not seen there)
+    local find_error
+    if ! find_error="$(find "$app" 2>&1 >/dev/null)" || [[ -n "$find_error" ]]; then
+        bundle_refuse "the bundle cannot be listed completely: $(visible_text "${find_error%%$'\n'*}")"; return 1
+    fi
     check_plist_values "$app/Contents/Info.plist"
 }
 
@@ -64,7 +90,7 @@ check_plist_values() {  # INFO.PLIST
     for key in CFBundleName CFBundleExecutable CFBundleShortVersionString CFBundleIdentifier; do
         value="$(plutil -extract "$key" raw -o - "$1" 2>/dev/null)" || { bundle_refuse "Info.plist has no $key"; return 1; }
         if [[ ! "$value" =~ $PLIST_VALUE_PATTERN ]]; then
-            bundle_refuse "Info.plist: $key is not of the form ${PLIST_VALUE_PATTERN}: $(printf '%q' "$value")"; return 1
+            bundle_refuse "Info.plist: $key is not of the form ${PLIST_VALUE_PATTERN}: $(visible_text "$value")"; return 1
         fi
     done
     value="$(plutil -extract CFBundleIdentifier raw -o - "$1")"
@@ -155,6 +181,9 @@ entitlement_names() {
 # devid_team: the output of `codesign -dvv FILE` on stdin; prints the Team ID when the signature's authority chain is
 # exactly "Developer ID Application: NAME (TEAMID)", "Developer ID Certification Authority", "Apple Root CA" and
 # TeamIdentifier names the same TEAMID. Prints nothing and returns 1 otherwise.
+# These are names, which anyone can put in a certificate: a sanity check, not a trust decision. Trust is decided by
+# `codesign --verify --strict` (preflight_app.sh runs it on every Mach-O file first), Apple's notarization and the
+# release workflow's Gatekeeper assessment (spctl --assess, source=Notarized Developer ID) in its verify job.
 devid_team() {
     local line authorities=() team="" leaf_team
     while IFS= read -r line; do

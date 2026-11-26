@@ -14,9 +14,13 @@
 #   --env NAME      the environment that holds the secrets (default: release, the one the workflow's sign job uses)
 #   --dry-run       check everything (the environment's protection too, with read-only GitHub API calls) and say
 #                   what would be set; set nothing
+#   --allow-admin-bypass
+#                   go on although repository administrators may bypass the environment's protection rules
+#                   (can_admins_bypass); without it that is refused. Turn the bypass off instead (docs/RELEASING.md)
 #
 # It checks that the .p8 parses as an EC private key, that the environment exists, has at least one required
-# reviewer and admits deployments from tags only (read with `gh api`, before anything is set), asks for the .p12
+# reviewer, admits deployments from tags only and does not let administrators bypass these rules (read with
+# `gh api`, before anything is set), asks for the .p12
 # password without echo, and checks that the .p12 opens with it and holds a Developer ID Application certificate
 # (issued by Apple's Developer ID CA, not expired) and a private key. Then it sets five environment secrets:
 # DEVELOPER_ID_P12_BASE64,
@@ -30,6 +34,7 @@ need_arg() { [[ $# -ge 2 && -n "${2:-}" ]] || { printf 'release-secrets.sh: %s n
 
 main() {
     local p12="" p8="" key_id="" issuer="" repo="" env="release" dry_run=0
+    ALLOW_ADMIN_BYPASS=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --p12) need_arg "$@"; p12="$2"; shift ;;
@@ -39,6 +44,7 @@ main() {
             --repo) need_arg "$@"; repo="$2"; shift ;;
             --env) need_arg "$@"; env="$2"; shift ;;
             --dry-run) dry_run=1 ;;
+            --allow-admin-bypass) ALLOW_ADMIN_BYPASS=1 ;;
             -h|--help) usage; exit 0 ;;
             *) printf 'release-secrets.sh: unknown option %s (see --help)\n' "$1" >&2; exit 2 ;;
         esac
@@ -109,15 +115,18 @@ check_p8() {  # the App Store Connect API key: a PKCS#8 file that parses as an E
         || fail "$p8 is not an App Store Connect API key: it is not an EC private key"
 }
 
-# check_environment REPO ENV: the environment exists, has at least one required reviewer and admits deployments
-# from tags only (custom deployment policies, every one of type tag). Read with GET requests; prints what it found.
+# check_environment REPO ENV: the environment exists, has at least one required reviewer, admits deployments from
+# tags only (custom deployment policies, every one of type tag) and does not let administrators bypass these rules
+# (can_admins_bypass false; a missing field counts as true, GitHub's default). Read with GET requests; prints what it
+# found.
 check_environment() {
-    local repo="$1" env="$2" rules policies reviewers custom protected
-    rules="$(gh api "repos/$repo/environments/$env" --jq '"reviewers=\([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers | length] | add // 0) custom=\(.deployment_branch_policy.custom_branch_policies // false) protected=\(.deployment_branch_policy.protected_branches // false)"' 2>/dev/null)" \
+    local repo="$1" env="$2" rules policies reviewers custom protected admins
+    rules="$(gh api "repos/$repo/environments/$env" --jq '"reviewers=\([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers | length] | add // 0) custom=\(.deployment_branch_policy.custom_branch_policies // false) protected=\(.deployment_branch_policy.protected_branches // false) admins=\(if .can_admins_bypass == false then false else true end)"' 2>/dev/null)" \
         || fail "the environment \"$env\" does not exist in $repo (or gh may not see it). Create it first: repository Settings > Environments > New environment \"$env\", see docs/RELEASING.md"
     reviewers="$(sed -nE 's/.*reviewers=([0-9]+).*/\1/p' <<< "$rules")"
     custom="$(sed -nE 's/.*custom=([a-z]+).*/\1/p' <<< "$rules")"
     protected="$(sed -nE 's/.*protected=([a-z]+).*/\1/p' <<< "$rules")"
+    admins="$(sed -nE 's/.*admins=([a-z]+).*/\1/p' <<< "$rules")"
     policies="$(gh api "repos/$repo/environments/$env/deployment-branch-policies" --jq '[.branch_policies[]? | "\(.type):\(.name)"] | join(" ")' 2>/dev/null || true)"
     printf 'Environment %s: %s required reviewer(s), deployment policies: %s\n' "$env" "${reviewers:-0}" "${policies:-none}"
     local fix="repository Settings > Environments > $env: tick Required reviewers and add yourself; under Deployment branches and tags choose Selected branches and tags and add one rule, Ref type Tag, v* (no branch rule). See docs/RELEASING.md"
@@ -129,6 +138,11 @@ check_environment() {
     for p in "${list[@]}"; do
         [[ "$p" == tag:* ]] || fail "the environment \"$env\" admits deployments from a branch ($p), not only from tags. Fix: $fix"
     done
+    if [[ "$admins" != "false" ]]; then
+        local bypass="repository administrators can bypass the protection rules of the environment \"$env\" (Allow administrators to bypass configured protection rules is on): an administrator account, or a token of one, could run the sign job without a reviewer. Fix: repository Settings > Environments > $env: untick Allow administrators to bypass configured protection rules. See docs/RELEASING.md"
+        [[ $ALLOW_ADMIN_BYPASS -eq 1 ]] || fail "$bypass. Or pass --allow-admin-bypass to go on anyway"
+        printf '\nWARNING: %s. Going on because of --allow-admin-bypass.\n\n' "$bypass" >&2
+    fi
 }
 
 origin_repo() {  # owner/name of origin when it is on github.com, from the local git configuration only

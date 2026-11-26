@@ -78,7 +78,6 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       artifact: ${{ steps.version.outputs.artifact }}
       publish: ${{ steps.version.outputs.publish }}
-      install_sha256: ${{ steps.installer.outputs.sha256 }}
     steps:
       # the commit the run was started for, not whatever the ref points at by the time a job starts
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -151,15 +150,6 @@ jobs:
       # The complete build, signed ad hoc. No secret exists in this job.
       - name: Build
         run: app/build_app.sh
-
-      # The SHA-256 of the installer at this commit, for the release notes (README: the verified install)
-      - name: Installer checksum
-        id: installer
-        run: |
-          set -euo pipefail
-          SUM="$(shasum -a 256 install.sh | cut -d' ' -f1)"
-          echo "install.sh: $SUM"
-          echo "sha256=$SUM" >> "$GITHUB_OUTPUT"
 
       - name: Pack the unsigned bundle
         run: |
@@ -533,6 +523,25 @@ jobs:
     env:
       DIST: ${{ github.workspace }}/dist
     steps:
+      # install.sh alone, at the commit the run started for, for its SHA-256 in the release notes. Computed here and
+      # not in the build job, where the Build step runs dependency code that could change the workspace. Nothing
+      # from this checkout runs.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: tree
+          sparse-checkout: install.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Installer checksum
+        id: installer
+        run: |
+          set -euo pipefail
+          SUM="$(sha256sum tree/install.sh | cut -d' ' -f1)"
+          echo "install.sh at $GITHUB_SHA: $SUM"
+          echo "sha256=$SUM" >> "$GITHUB_OUTPUT"
+
       - name: Download the signed zip
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -559,7 +568,7 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
           ARTIFACT: ${{ needs.build.outputs.artifact }}
           TEAM: ${{ needs.sign.outputs.team }}
-          INSTALL_SHA256: ${{ needs.build.outputs.install_sha256 }}
+          INSTALL_SHA256: ${{ steps.installer.outputs.sha256 }}
         run: |
           set -euo pipefail
           SHA="$(cut -d' ' -f1 "$DIST/$ARTIFACT.sha256")"

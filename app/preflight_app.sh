@@ -25,14 +25,47 @@
 # no symbolic link that points outside the bundle or nowhere; no file with a second hard link; no quarantine, Finder
 # information or resource fork
 # attribute; `codesign --verify --deep --strict` passes on the whole bundle.
+#
+# Every run that checks a bundle ends with one RESULT line. A refusal before the checks (a usage error, a bundle that
+# fails the structure check, a file or folder that cannot be read) and an unexpected error during them both print
+# their reason and a RESULT line too, and exit non-zero.
+#
+# The Developer ID check reads names: the authority chain and the Team ID that `codesign -dvv` prints. It is a sanity
+# check that catches a wrong or ad-hoc identity early, not a trust decision. What decides is cryptographic:
+# `codesign --verify --strict` here (each signature valid, its certificate chain intact), and in the release workflow
+# Apple's notarization of the upload and the verify job's Gatekeeper assessment (`spctl --assess`, which requires
+# "source=Notarized Developer ID") of the stapled app on a clean runner.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=app/bundle_check.sh
 source "$HERE/bundle_check.sh"
 
+RESULT_PRINTED=0
+REFUSAL=""
+ERR_LINE=""
+TMP=""
+
+# on any exit: remove the scratch folder and, when the run fails without having said so, say why and end with RESULT
+on_exit() {
+    local rc=$?
+    if [[ -n "$TMP" ]]; then rm -rf "$TMP"; fi
+    if [[ $rc -ne 0 && $RESULT_PRINTED -eq 0 ]]; then
+        if [[ -n "$REFUSAL" ]]; then
+            printf 'RESULT: refused: %s\n' "$REFUSAL"
+        else
+            printf 'FAIL  the preflight stopped at an unexpected error (exit %d%s); see the message above\n' \
+                "$rc" "${ERR_LINE:+, preflight_app.sh line $ERR_LINE}"
+            printf 'RESULT: refused, the preflight did not finish\n'
+        fi
+    fi
+}
+
 main() {
     local allow_adhoc=0 app=""
+    set -E
+    trap 'ERR_LINE=$LINENO' ERR
+    trap on_exit EXIT
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --allow-adhoc) allow_adhoc=1 ;;
@@ -47,13 +80,13 @@ main() {
     APP="$(physical_bundle "$app")" || die "$BUNDLE_PROBLEM"
     SUPPORT="$HERE/Support"
     TMP="$(mktemp -d "${TMPDIR:-/tmp}/framescribe-preflight.XXXXXX")"
-    trap 'rm -rf "$TMP"' EXIT
     FAILED=0
 
     printf 'preflight of %s (%s)\n' "$APP" "$([[ $allow_adhoc -eq 1 ]] && echo 'ad-hoc test build' || echo 'release gate')"
     if ! check_bundle_enumerable "$APP"; then
         fail "bundle structure: $BUNDLE_PROBLEM"
         printf 'RESULT: refused before any other check\n'
+        RESULT_PRINTED=1
         exit 1
     fi
     pass "bundle structure: $BUNDLE_NAME, no symbolic link at its fixed places, no control character in a path, Info.plist values"
@@ -67,11 +100,12 @@ main() {
     check_hardlinks
     check_attributes
     check_deep_verify
+    RESULT_PRINTED=1
     if [[ $FAILED -gt 0 ]]; then printf 'RESULT: %d check(s) failed\n' "$FAILED"; exit 1; fi
     printf 'RESULT: every check passed\n'
 }
 
-die() { printf 'preflight_app.sh: %s\n' "$*" >&2; exit 2; }
+die() { printf 'preflight_app.sh: %s\n' "$*" >&2; REFUSAL="$*"; exit 2; }
 pass() { printf 'PASS  %s\n' "$*"; }
 skip() { printf 'SKIP  %s\n' "$*"; }
 fail() { printf 'FAIL  %s\n' "$*"; FAILED=$((FAILED + 1)); }
@@ -188,13 +222,14 @@ check_sdk() {
     local f sdk bad="$TMP/oldsdk" lowest="" lowest_n=999999 n
     : > "$bad"
     while IFS= read -r f; do
-        sdk="$(vtool -show-build "$f" 2>/dev/null | awk '$1 == "sdk" {print $2; exit}')"
-        if [[ -z "$sdk" || "$sdk" == "n/a" ]]; then printf '%s (no SDK version)\n' "$f" >> "$bad"; continue; fi
+        # a file vtool cannot read (cut short after its magic number, say) has no SDK version: a FAIL, not an exit
+        sdk="$(vtool -show-build "$f" 2>/dev/null | awk '$1 == "sdk" {print $2; exit}')" || sdk=""
+        if [[ -z "$sdk" || "$sdk" == "n/a" ]]; then printf '%s (no SDK version: vtool cannot read one)\n' "$f" >> "$bad"; continue; fi
         n="$(version_number "$sdk")"
         if (( n < lowest_n )); then lowest_n=$n; lowest="$sdk"; fi
         if (( n < 100900 )); then printf '%s (SDK %s)\n' "$f" "$sdk" >> "$bad"; fi
     done < "$MACHO"
-    if [[ -s "$bad" ]]; then fail "SDK: $(wc -l < "$bad" | tr -d ' ') Mach-O files were built against an SDK older than macOS 10.9"; detail "$bad"
+    if [[ -s "$bad" ]]; then fail "SDK: $(wc -l < "$bad" | tr -d ' ') Mach-O files have no readable SDK version or one older than macOS 10.9"; detail "$bad"
     else pass "SDK: every Mach-O file was built against macOS 10.9 or newer (oldest: $lowest)"; fi
 }
 

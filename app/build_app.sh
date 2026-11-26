@@ -10,7 +10,11 @@
 #                                         folder in the output folder and app/.build (nothing else in it). A work
 #                                         folder counts as the build's only when it holds the marker file
 #                                         .framescribe-build (or runtime.stamp, from older builds) or is empty;
-#                                         the build refuses to touch any other
+#                                         the build refuses to touch any other. The app and the zips are removed
+#                                         (or replaced by a build) only in an output folder whose work folder holds
+#                                         that marker: with --out /Applications an installed Framescribe.app is
+#                                         refused, never deleted. app/.build is removed only next to Package.swift
+#                                         in the folder of this script
 #   app/build_app.sh --hardened           sign ad hoc, but with the hardened runtime and the release entitlements plus
 #                                         disable-library-validation (an ad-hoc signature has no Team ID), then run
 #                                         app/preflight_app.sh --allow-adhoc on it: tests locally what a Developer ID
@@ -73,11 +77,22 @@ main() {
 
     check_tools
     check_work_folder
+    check_output_folder
     if [[ $clean -eq 1 ]]; then
-        # only what this script makes, never the folder itself: --out may name any folder, even the checkout
+        # only what this script makes, never the folder itself: --out may name any folder, even the checkout. The
+        # app and the zips only where an earlier build left its marker (check_output_folder refused otherwise)
         step "clean: removing $WORK, $APP, the zips next to it and $APP_DIR/.build"
-        rm -rf "$WORK" "$APP" "$APP_DIR/.build"
-        rm -f "$BUILD"/Framescribe-*.zip "$BUILD"/Framescribe-*.zip.sha256
+        if [[ $OUT_IS_OURS -eq 1 ]]; then
+            rm -rf "$WORK" "$APP"
+            rm -f "$BUILD"/Framescribe-*.zip "$BUILD"/Framescribe-*.zip.sha256
+        elif [[ -d "$WORK" && ! -L "$WORK" ]]; then
+            rmdir "$WORK"  # empty (check_work_folder): nothing of anyone's is in it
+        fi
+        if [[ -f "$APP_DIR/Package.swift" && -d "$APP_DIR/.build" && ! -L "$APP_DIR/.build" ]]; then
+            rm -rf "$APP_DIR/.build"
+        elif [[ -e "$APP_DIR/.build" || -L "$APP_DIR/.build" ]]; then
+            die "$APP_DIR/.build is not the Swift build folder of this checkout (no Package.swift next to it, or a symbolic link); refusing to remove it"
+        fi
     fi
     mkdir -p "$WORK"
     : > "$WORK/$WORK_MARKER"
@@ -112,6 +127,22 @@ check_work_folder() {
     if [[ -d "$WORK" && ! -f "$WORK/$WORK_MARKER" && ! -f "$WORK/runtime.stamp" ]] \
         && [[ -n "$(find "$WORK" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
         die "$WORK was not made by build_app.sh (no $WORK_MARKER in it); move it away or choose another --out"
+    fi
+}
+
+# The output folder is this script's when its work folder carries the marker an earlier build wrote (runtime.stamp:
+# older builds). Only then may a Framescribe.app or a Framescribe-*.zip in it be removed or replaced: --out may name
+# /Applications or any other folder, and what is there already belongs to someone else.
+check_output_folder() {
+    OUT_IS_OURS=0
+    if [[ -d "$WORK" && ! -L "$WORK" ]] && [[ -f "$WORK/$WORK_MARKER" || -f "$WORK/runtime.stamp" ]]; then
+        OUT_IS_OURS=1; return 0
+    fi
+    local theirs=""
+    if [[ -e "$APP" || -L "$APP" ]]; then theirs="$APP"
+    else theirs="$(find "$BUILD" -mindepth 1 -maxdepth 1 -name 'Framescribe-*.zip*' -print -quit)"; fi
+    if [[ -n "$theirs" ]]; then
+        die "$theirs was not made by build_app.sh here ($WORK has no $WORK_MARKER); refusing to remove or replace it. Move it away or choose another --out"
     fi
 }
 

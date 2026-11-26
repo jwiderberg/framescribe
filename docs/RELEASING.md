@@ -13,16 +13,16 @@ The order matters. The settings and the `release` environment have to be in plac
 
 This repository has all of the following already. They are the required state: check them before a release, and after any change to the repository's settings. Each item says how to check it with read-only `gh` calls.
 
-- **Environment `release`.** At least one required reviewer, and under Deployment branches and tags a single rule, Ref type Tag, `v*`, and no branch rule. Its secrets are the five the script sets, nothing else. Only the workflow's `sign` job uses this environment, and every run of it waits for an approval. `scripts/release-secrets.sh` checks the reviewer and the tag rule before it sets anything, and `--dry-run` reports them.
+- **Environment `release`.** At least one required reviewer, and under Deployment branches and tags a single rule, Ref type Tag, `v*`, and no branch rule. Allow administrators to bypass configured protection rules is turned off: with it on, an administrator account (or a token of one) runs the `sign` job without any approval. Its secrets are the five the script sets, nothing else. Only the workflow's `sign` job uses this environment, and every run of it waits for an approval. `scripts/release-secrets.sh` checks the reviewer, the tag rule and the bypass setting before it sets anything, and `--dry-run` reports them.
 
   ```
   gh api repos/jwiderberg/framescribe/environments/release \
-      --jq '{reviewers: [.protection_rules[] | select(.type == "required_reviewers") | .reviewers[].reviewer.login], policy: .deployment_branch_policy}'
+      --jq '{reviewers: [.protection_rules[] | select(.type == "required_reviewers") | .reviewers[].reviewer.login], policy: .deployment_branch_policy, can_admins_bypass}'
   gh api repos/jwiderberg/framescribe/environments/release/deployment-branch-policies --jq '.branch_policies[] | {type, name}'
   gh secret list --repo jwiderberg/framescribe --env release
   ```
 
-  Expected: one or more reviewers, `custom_branch_policies: true` and `protected_branches: false`, one policy `{"type": "tag", "name": "v*"}`, the five secret names.
+  Expected: one or more reviewers, `custom_branch_policies: true` and `protected_branches: false`, `can_admins_bypass: false`, one policy `{"type": "tag", "name": "v*"}`, the five secret names.
 
 - **Tag ruleset.** Target tags matching `v*`, enforcement Active, restrict creations, updates and deletions, bypass list Repository admin. Only admins can make, move or delete a release tag or a dry-run tag.
 - **Branch ruleset.** `main` (the default branch), Active, block force pushes, restrict deletions.
@@ -70,7 +70,7 @@ scripts/release-secrets.sh --p12 ~/Desktop/DeveloperID.p12 --p8 ~/Downloads/Auth
     --key-id ABC123DEFG --issuer 12345678-aaaa-bbbb-cccc-1234567890ab --dry-run
 ```
 
-Then the same command without `--dry-run`. It checks that the .p8 parses as an EC private key, that the environment `release` exists with a required reviewer and deployments from tags only (it stops with what to fix otherwise), asks for the .p12 password without echo and checks that the file opens with it, holds a private key and a Developer ID Application certificate issued by Apple that has not expired. It then sets `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`, `NOTARY_KEY_P8_BASE64`, `NOTARY_KEY_ID` and `NOTARY_ISSUER_ID` as secrets of that environment, passing each value to `gh secret set --env release` on standard input. It prints no value.
+Then the same command without `--dry-run`. It checks that the .p8 parses as an EC private key, that the environment `release` exists with a required reviewer, deployments from tags only and administrators' bypass turned off (it stops with what to fix otherwise; `--allow-admin-bypass` goes on with a warning when the bypass is on, which the required state above rules out), asks for the .p12 password without echo and checks that the file opens with it, holds a private key and a Developer ID Application certificate issued by Apple that has not expired. It then sets `DEVELOPER_ID_P12_BASE64`, `DEVELOPER_ID_P12_PASSWORD`, `NOTARY_KEY_P8_BASE64`, `NOTARY_KEY_ID` and `NOTARY_ISSUER_ID` as secrets of that environment, passing each value to `gh secret set --env release` on standard input. It prints no value.
 
 If any of the five was ever set at repository level, delete those copies so that only the environment holds them:
 
@@ -147,6 +147,10 @@ The tag must be `v` plus the version in `pyproject.toml`, otherwise the build st
 
 - Open the app and run one video. The first launch of a download shows Gatekeeper's "downloaded from the internet" prompt once. Any other warning means something is wrong.
 - The command line installer of the release: `curl -fsSLO https://raw.githubusercontent.com/jwiderberg/framescribe/v<version>/install.sh`, then `shasum -a 256 install.sh` must print the value in the notes.
+
+What decides whether a signature is trusted is cryptographic, not a name. The Preflight step's Developer ID check reads the authority names and the Team ID that `codesign -dvv` prints. That is a sanity check that catches a wrong or an ad-hoc identity early. The gates are `codesign --verify --strict` on every Mach-O file (in Preflight), Apple's notarization of the upload (Notarize), and the `verify` job's Gatekeeper assessment of the stapled app on a fresh runner (`spctl --assess`, which must report `source=Notarized Developer ID`).
+
+The SHA-256 of `install.sh` in the release notes is computed in the `publish` job, from a checkout of `install.sh` alone at the commit the run started for. The `build` job runs dependency code in its Build step, so no checksum is taken there.
 
 When a step fails, its log says why. The usual causes: the tag does not match `pyproject.toml` (Version, in the `build` job), a malformed bundle (Check the bundle structure), a missing secret or a wrong password (Import Developer ID certificate), a file without the hardened runtime, the Developer ID chain or the one Team ID (Preflight), a rejection by Apple (Notarize prints `notarytool log` with the reason per file), a signed app that does not start (verify). To redo a release, delete the release and the tag (`gh release delete v0.1.0 --cleanup-tag`, then `git tag -d v0.1.0` locally), fix, tag again.
 
