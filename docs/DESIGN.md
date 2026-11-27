@@ -500,7 +500,7 @@ non-black" mask, finds connected rectangular regions and takes the largest as `c
 
 - `parakeet` (`asr.parakeet`) — in-process. The audio is cut into chunks at pauses: about 30 s (`chunk_seconds`), at the
   centre of the longest pause within 5 s of the target, else within 10 s, never longer than 40 s
-  (`chunk_max_seconds`); where there is no pause at all, at the widest gap between two decoded words, with a warning. Where the decode has no two words near the planned cut either (music, noise: sound without pauses and without words), the cut stays where it was planned, or moves to the end of a lone word lying across it or within 0.25 s of it, so that the word is kept whole from that decode. A missing pause or word boundary never fails a run.
+  (`chunk_max_seconds`); where there is no pause at all, at the widest gap between two decoded words, with a warning. Where the decode has no two words near the planned cut either (music, noise: sound without pauses and without words), the cut stays where it was planned. A lone word can still be there, and the next chunk's decode times it a frame or two differently, so a cut near a word's start could give the word to neither chunk or to both: a lone word that starts within 0.25 s of the planned cut moves the cut 0.25 s before its start. The cut never moves later than planned. A missing pause or word boundary never fails a run.
   Each chunk is decoded with 1 s of audio before its cut and 2 s after its end, without digital silence; the words
   found in that context belong to the neighbouring chunks and are dropped (every word belongs to the chunk its start
   falls in). A word that the chunks on both sides of a cut decoded (the first one in its context after the cut, timed

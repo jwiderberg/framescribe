@@ -38,7 +38,7 @@ struct RunOverviewTests {
         #expect(o.rows.map(\.value) == ["8 min 6 s for 1:52:49 of video", "3 min 25 s, 10,827 words", "1 min 14 s, 763 key frames",
                                         "3 min 20 s", "54 steps"])
         #expect(o.completeness == "128 words (1.2%) were filled in from other sources, under the 3% warning limit. "
-                + "Of the 67 fills, 8 were confirmed by two sources and 59 come from one source only. 6 candidates were rejected.")
+                + "Of the 67 fills, 8 were confirmed by two sources and 59 were not. 6 candidates were rejected.")
     }
 
     @Test func cachedStagesSayFromTheCache() {

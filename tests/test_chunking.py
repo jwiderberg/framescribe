@@ -133,15 +133,27 @@ def test_no_pause_cut_without_two_words_near_it_stays_put_and_never_fails():
     for words in ([], [w("far", 2.0, 2.5), w("away", 2.6, 3.0)], [w("alone", 30.0, 30.4)]):
         cut = word_boundary_cut(words, 40.0, 5.0, levels)
         assert cut.kind == "no_pause" and cut.time == pytest.approx(40.0) and cut.pause_seconds == 0.0
-    # one word across the cut: the cut goes to its nearer edge, so the word stays whole
-    # one word across the cut: the cut goes to its end, never its start, so the word is kept from this decode (the
-    # next decode can time it just before a cut at its start, where it would be dropped as context)
-    assert word_boundary_cut([w("long", 39.0, 40.2)], 40.0, 5.0, levels).time == pytest.approx(40.2)
-    assert word_boundary_cut([w("long", 39.9, 41.5)], 40.0, 5.0, levels).time == pytest.approx(41.5)
-    # a word that starts or ends a few frames from the cut counts as across it
-    assert word_boundary_cut([w("next", 40.08, 41.0)], 40.0, 5.0, levels).time == pytest.approx(41.0)
-    assert word_boundary_cut([w("prev", 39.0, 39.9)], 40.0, 5.0, levels).time == pytest.approx(39.9)
+    # a lone word that starts well before the cut stays in this chunk: the cut does not move, also when it is
+    # inside the word (the next decode times its start before the cut too, and drops it as context)
+    assert word_boundary_cut([w("long", 39.0, 40.2)], 40.0, 5.0, levels).time == pytest.approx(40.0)
+    assert word_boundary_cut([w("held", 34.0, 46.0)], 40.0, 5.0, levels).time == pytest.approx(40.0)
+    assert word_boundary_cut([w("prev", 39.0, 39.9)], 40.0, 5.0, levels).time == pytest.approx(40.0)
+    # a lone word that starts within a few frames of the cut, on either side: the cut moves before its start, so
+    # that both decodes give the word to the next chunk. Never later than planned
+    assert word_boundary_cut([w("next", 40.08, 41.0)], 40.0, 5.0, levels).time == pytest.approx(39.83)
+    assert word_boundary_cut([w("edge", 39.9, 41.5)], 40.0, 5.0, levels).time == pytest.approx(39.65)
+    assert word_boundary_cut([w("frame", 39.92, 40.0)], 40.0, 5.0, levels).time == pytest.approx(39.67)
     assert word_boundary_cut([w("far", 40.5, 41.0)], 40.0, 5.0, levels).time == pytest.approx(40.0)
+    assert word_boundary_cut([w("first", 0.1, 0.4)], 0.2, 5.0, levels).time == 0.0
+
+
+def test_a_fallback_cut_is_never_later_than_planned():
+    levels = Levels(noise(60), RATE)
+    for start in np.arange(35.0, 45.0, 0.07):
+        for length in (0.08, 0.5, 2.0, 8.0):
+            cut = word_boundary_cut([w("x", float(start), float(start) + length)], 40.0, 0.5, levels)
+            assert 40.0 - 2 * 0.25 - 1e-9 <= cut.time <= 40.0
+            assert abs(cut.time - float(start)) >= 0.25 - 1e-9 or cut.time < float(start)  # not near the word's start
 
 
 def test_two_touching_words_are_a_gap_to_cut_in():

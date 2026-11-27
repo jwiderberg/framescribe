@@ -381,3 +381,24 @@ def test_a_negative_cache_limit_is_refused(tmp_path):
     ctx.config = Config(mlx_cache_limit_mb=-1)
     with pytest.raises(asr_parakeet.StageError):
         asr_parakeet.run(ctx)
+
+
+def test_the_warning_of_a_cut_without_a_pause_says_how_it_was_placed(tmp_path):
+    x = noise(70.0)  # sound all the way, no pause
+    planned = [Cut(time=30.0, kind="no_pause", level_db=-20.0, pause_seconds=0.0)]
+    pad = asr_parakeet.PAD_SECONDS  # the first decode starts at 0 s after this much leading silence
+
+    def first_warning(words):
+        r = decode_alone(tmp_path, x, ScriptedModel(lambda call, seconds: words if call == 0 else []), planned)
+        return r.cuts[0], r.warnings[0]
+
+    # two touching words (ScriptedModel's words are 0.3 s long): a gap to cut in, 0 s wide
+    cut, warning = first_warning([("a.", 29.7 + pad), ("b.", 30.0 + pad)])
+    assert cut.time == pytest.approx(30.0, abs=0.01) and "between two words (0.00 s apart" in warning
+    # no word anywhere near: the cut stays where it was planned
+    cut, warning = first_warning([("a.", 5.0 + pad)])
+    assert cut.time == pytest.approx(30.0) and "where the decode has no two words to cut between" in warning
+    # a lone word starting just after the planned cut: the cut moves before it, never later
+    cut, warning = first_warning([("a.", 30.1 + pad)])
+    assert cut.time == pytest.approx(30.1 - asr_parakeet.LONE_WORD_MARGIN_SECONDS, abs=0.01)
+    assert "just before a lone word" in warning

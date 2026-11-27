@@ -78,9 +78,9 @@ public struct RunOverview: Sendable, Equatable {
                 line += total == 1 ? " The 1 fill comes from the only other transcript, so no second source could confirm it."
                     : " The \(grouped(total)) fills come from the only other transcript, so no second source could confirm them."
             } else if total == 1 {
-                line += confirmed == 1 ? " The 1 fill was confirmed by two sources." : " The 1 fill comes from one source only."
+                line += confirmed == 1 ? " The 1 fill was confirmed by two sources." : " The 1 fill was not confirmed by a second source."
             } else {
-                line += " Of the \(grouped(total)) fills, \(grouped(confirmed)) \(confirmed == 1 ? "was" : "were") confirmed by two sources and \(grouped(unconfirmed)) \(unconfirmed == 1 ? "comes" : "come") from one source only."
+                line += " Of the \(grouped(total)) fills, \(grouped(confirmed)) \(confirmed == 1 ? "was" : "were") confirmed by two sources and \(grouped(unconfirmed)) \(unconfirmed == 1 ? "was" : "were") not."
             }
         }
         if let rejected = c.rejected, rejected > 0 {
